@@ -1,108 +1,166 @@
-/* Phong cách gần Claude Code: nền tối ấm, accent cam #d97757, viền bo tròn, chữ dịu */
+/* ============================================================
+   Minimal Dark Theme
+   Neutral / clean / distraction-free
+   ============================================================ */
 
 Screen {
-    background: #1a1918;
-    color: #d6d1cb;
+    background: #111111;
+    color: #d4d4d4;
 }
+
+/* ------------------------------------------------------------ banner */
 
 #banner {
     height: auto;
     margin: 1 1 0 1;
     padding: 0 2;
-    border: round #d97757;
-    border-title-color: #d97757;
+
+    background: #111111;
+
+    border: round #2b2b2b;
+    border-title-color: #bdbdbd;
     border-title-style: bold;
-    background: #1a1918;
+
+    color: #e5e5e5;
 }
+
+/* ------------------------------------------------------------ tabs */
 
 #tabs {
     height: 1;
     margin: 1 2 0 2;
+
+    color: #a3a3a3;
 }
+
+/* ------------------------------------------------------------ filters */
 
 #filters {
     height: 1;
     margin: 0 2;
-    color: #8a847d;
+
+    color: #737373;
 }
+
+/* ------------------------------------------------------------ matrix */
 
 #matrix {
     height: 1fr;
     margin: 1 1 0 1;
-    background: #1a1918;
-    border: round #3a3633;
+
+    background: #111111;
+
+    border: round #292929;
+
     scrollbar-size: 1 1;
-    scrollbar-color: #3a3633;
-    scrollbar-background: #1a1918;
+    scrollbar-color: #3a3a3a;
+    scrollbar-background: #111111;
 }
 
 #matrix:focus {
-    border: round #d97757;
+    border: round #737373;
 }
 
+/* ------------------------------------------------------------ datatable */
+
 DataTable > .datatable--header {
-    background: #26231f;
-    color: #d97757;
+    background: #171717;
+    color: #bdbdbd;
+
     text-style: bold;
 }
 
 DataTable > .datatable--cursor {
-    background: #4a3329;
+    background: #262626;
     color: #ffffff;
+
     text-style: bold;
 }
 
 DataTable > .datatable--hover {
-    background: #26231f;
+    background: #1c1c1c;
 }
+
+/* ------------------------------------------------------------ detail */
 
 #detail {
     height: auto;
     min-height: 5;
     max-height: 10;
+
     margin: 0 1;
     padding: 0 2;
-    border: round #3a3633;
-    color: #b8b2aa;
+
+    background: #111111;
+
+    border: round #292929;
+
+    color: #a3a3a3;
 }
 
+/* ------------------------------------------------------------ footer */
+
 Footer {
-    background: #1a1918;
-    color: #8a847d;
+    background: #111111;
+    color: #737373;
 }
 
 Footer .footer-key--key {
-    color: #d97757;
-    background: #1a1918;
+    background: #111111;
+    color: #d4d4d4;
+
     text-style: bold;
 }
 
 Footer .footer-key--description {
-    color: #8a847d;
-    background: #1a1918;
+    background: #111111;
+    color: #737373;
 }
 
-/* ------------------------------------------------------------ modals */
-ConfirmScreen, PromptScreen, HelpScreen {
+/* ============================================================ modals */
+
+ConfirmScreen,
+PromptScreen,
+HelpScreen,
+SkillSelectScreen {
     align: center middle;
-    background: #000000 60%;
+
+    background: #000000 70%;
 }
 
 #dialog {
     width: 72;
     height: auto;
     max-height: 90%;
+
     padding: 1 2;
-    border: round #d97757;
-    background: #1a1918;
+
+    background: #171717;
+    color: #d4d4d4;
+
+    border: round #333333;
 }
 
 #dialog Input {
     margin-top: 1;
-    border: round #3a3633;
-    background: #1a1918;
+
+    background: #111111;
+    color: #e5e5e5;
+
+    border: round #333333;
 }
 
 #dialog Input:focus {
-    border: round #d97757;
+    border: round #737373;
+}
+
+/* ------------------------------------------------------------ remote skills */
+
+#remote-skills {
+    height: 14;
+    margin: 1 0;
+
+    background: #111111;
+
+    border: round #292929;
 }

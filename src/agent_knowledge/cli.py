@@ -4,12 +4,14 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 
 from . import __version__
 from .catalog import KIND_ALIASES, KIND_LABEL, KINDS, default_home
 from .ops import Manager
 from .scaffold import init_library
+from . import remote
 
 SYMBOL = {"installed": "●", "outdated": "◐", "absent": "○", "external": "◌"}
 
@@ -43,7 +45,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     for name, hlp in (("install", "cài item cho agent"), ("uninstall", "gỡ item khỏi agent")):
         sp = sub.add_parser(name, parents=[common], help=hlp)
-        sp.add_argument("items", nargs="+", help="dạng kind:name, vd skill:commit-helper mcp:context7")
+        sp.add_argument("items", nargs="+", help="kind:name; install cũng nhận GitHub owner/repo để nhập skills vào library")
         sp.add_argument("-a", "--agent", action="append", help="agent đích (lặp được)")
         sp.add_argument("--all-agents", action="store_true", help="áp dụng cho mọi agent")
         sp.add_argument("-s", "--scope", choices=("global", "project"), default="global")
@@ -127,6 +129,43 @@ def cmd_apply(mgr: Manager, args, install: bool) -> int:
     return 1 if fails else 0
 
 
+def cmd_remote(mgr: Manager, repository: str) -> int:
+    try:
+        with tempfile.TemporaryDirectory(prefix="ak-skills-") as temp:
+            print(f"Đang tải {repository}…")
+            skills = remote.download(repository, Path(temp) / "repo")
+            for i, skill in enumerate(skills, 1):
+                tag = " (đã có)" if remote.exists(mgr.home, skill.name) else ""
+                print(f"{i}. {skill.name}{tag} — {skill.description}")
+            while True:
+                answer = input("Chọn số cách nhau bằng dấu phẩy (vd 1,3), all = tất cả; Enter = huỷ: ").strip()
+                if not answer:
+                    return 0
+                try:
+                    indices = list(range(len(skills))) if answer.lower() == "all" else list(dict.fromkeys(
+                        int(v.strip()) - 1 for v in answer.split(",")))
+                    if any(i < 0 or i >= len(skills) for i in indices):
+                        raise ValueError
+                    break
+                except ValueError:
+                    print("Lựa chọn không hợp lệ.")
+            for i in indices:
+                skill = skills[i]
+                overwrite = remote.exists(mgr.home, skill.name)
+                if overwrite and input(f"Ghi đè {skill.name}? Chỉnh sửa cũ sẽ mất. [y/N]: ").strip().lower() != "y":
+                    print(f"Bỏ qua {skill.name}")
+                    continue
+                remote.install(mgr.home, skill, overwrite=overwrite)
+                print(f"✔ {mgr.home / 'skills' / skill.name}")
+        return 0
+    except (ValueError, OSError) as exc:
+        print(f"✘ {exc}", file=sys.stderr)
+        return 1
+    except EOFError:
+        print("Đã huỷ: cần nhập lựa chọn và xác nhận trong terminal.", file=sys.stderr)
+        return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     home = default_home(args.home)
@@ -144,6 +183,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "list":
         return cmd_list(mgr, args)
     if args.cmd in ("install", "uninstall"):
+        if args.cmd == "install" and any("/" in item for item in args.items):
+            if len(args.items) != 1 or args.agent or args.all_agents or args.scope != "global":
+                raise SystemExit("Dùng ak install owner/repo để nhập vào library; cài cho agent bằng kind:name riêng.")
+            return cmd_remote(mgr, args.items[0])
         return cmd_apply(mgr, args, args.cmd == "install")
     from .tui import run
     run(mgr)

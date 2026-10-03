@@ -174,6 +174,7 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 | `u` | cập nhật item lệch (`◐`) theo library |
 | `A` / `X` | cài / gỡ item cho **tất cả** agent |
 | `m` | nhập item external (`◌`) vào library (skill, MCP) |
+| `i` | Install skills: nhập GitHub `owner/repo`, chọn skills để tải vào library |
 | `1` `2` `3` hoặc `[` `]` | đổi tab |
 | `f` | lọc theo 1 agent (xoay vòng: all → claude → codex → …) |
 | `o` | chỉ hiện item đã cài |
@@ -269,12 +270,30 @@ ak init [--examples]
 ak agents                                              # đường dẫn đang dùng cho từng agent
 ak list [skill|mcp|instruction] [-a claude] [-s project] [--json]
 
+ak install   anthropics/skills                                         # chọn skills từ GitHub vào library
 ak install   skill:commit-helper mcp:context7 -a claude -a codex          # global
 ak install   instruction:coding-style --all-agents -s project --project ~/work/myapp
 ak uninstall skill:commit-helper -a codex
 ```
 
 Mã thoát `1` nếu có thao tác thất bại.
+
+### Cài skills từ GitHub
+
+Trong TUI, nhấn **`i` — Install skills**, nhập `anthropics/skills` hoặc repository
+GitHub khác theo dạng `owner/repo`. Dùng ↑ ↓ và Space để chọn nhiều skill, Enter
+để cài, Esc để huỷ. Skill đã có trong library sẽ được hỏi xác nhận trước khi ghi đè.
+
+CLI: `ak install anthropics/skills`, sau đó nhập các số cách nhau bằng dấu phẩy
+(ví dụ `1,3`) hoặc `all`. Enter khi chưa nhập gì sẽ huỷ. Khi hỏi ghi đè, nhập `y`
+để đồng ý; các câu trả lời khác sẽ bỏ qua skill đó.
+
+Cần Git và kết nối GitHub. Tool tải nhánh mặc định, tìm các thư mục có `SKILL.md`
+và chép cả tài nguyên đi kèm vào `~/.agent-knowledge/skills/<name>`
+(hoặc library từ `--home` / `AGENT_KNOWLEDGE_HOME`). Sau đó dùng thao tác cài/gỡ
+hiện có để liên kết skill với agent. Ghi đè library cũng cập nhật nội dung mà các
+agent đang liên kết bằng symlink sử dụng. Repository có tên skill trùng nhau hoặc
+skill chứa symlink sẽ báo lỗi.
 
 ## 9. Secrets (token, API key)
 

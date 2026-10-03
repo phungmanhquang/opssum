@@ -1,6 +1,8 @@
 """Giao diện TUI (Textual) — ma trận item × agent, phong cách gần Claude Code."""
 from __future__ import annotations
 
+import asyncio
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -9,9 +11,10 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Input, Static
+from textual.widgets import DataTable, Footer, Input, Static, SelectionList
 
 from . import __version__
+from . import remote
 from .catalog import KIND_LABEL, KINDS, Item
 from .ops import Manager, Result, State
 
@@ -85,7 +88,40 @@ class PromptScreen(ModalScreen["str | None"]):
         self.dismiss(None)
 
 
+class SkillSelectScreen(ModalScreen[list[int] | None]):
+    BINDINGS = [Binding("escape", "cancel", "Huỷ"),
+                Binding("enter", "submit", "Cài đã chọn", priority=True)]
+
+    def __init__(self, skills: list[remote.RemoteSkill], home: Path):
+        super().__init__()
+        self.skills = skills
+        self.home = home
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static("Install skills — chọn skill để thêm vào library")
+            yield SelectionList(*[
+                (Text(f"{s.name}{' (đã có)' if remote.exists(self.home, s.name) else ''} — {s.description}"), i)
+                for i, s in enumerate(self.skills)
+            ], id="remote-skills")
+            yield Static("↑ ↓ di chuyển · Space chọn/bỏ · Enter cài · Esc huỷ")
+
+    def on_mount(self) -> None:
+        self.query_one(SelectionList).focus()
+
+    def action_submit(self) -> None:
+        selected = self.query_one(SelectionList).selected
+        if not selected:
+            self.notify("Chọn ít nhất một skill bằng Space.", severity="warning")
+            return
+        self.dismiss(sorted(selected))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 HELP = [
+    ("i", "Install skills từ GitHub (owner/repo) vào library"),
     ("Di chuyển", "↑ ↓ ← →  chọn ô (hàng = item, cột = agent)"),
     ("space / enter", "cài ↔ gỡ item cho agent ở cột đang chọn"),
     ("u", "cập nhật item đang lệch (◐) theo library"),
@@ -131,6 +167,7 @@ class AgentKnowledgeApp(App):
     ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
+        Binding("i", "remote_install", "Install skills"),
         Binding("space", "toggle", "cài/gỡ", key_display="space"),
         Binding("enter", "toggle", "cài/gỡ", show=False),
         Binding("u", "update", "cập nhật", show=False),
@@ -161,6 +198,7 @@ class AgentKnowledgeApp(App):
         self.rows_data: list[Row] = []
         self.col_keys: list[str] = []
         self._loaded = False
+        self._remote_busy = False
 
     # ------------------------------------------------------------- layout
     def compose(self) -> ComposeResult:
@@ -396,6 +434,54 @@ class AgentKnowledgeApp(App):
         self.push_screen(ConfirmScreen(message), cb)
 
     # ------------------------------------------------------------ actions
+    def action_remote_install(self) -> None:
+        if self._remote_busy:
+            self.notify("Đang xử lý repository, vui lòng chờ.")
+            return
+        self._remote_busy = True
+        self.run_worker(self._remote_install(), name="install-skills")
+
+    async def _remote_install(self) -> None:
+        try:
+            repository = await self.push_screen_wait(PromptScreen("Install skills — GitHub owner/repo (vd anthropics/skills)"))
+            if not repository:
+                return
+            self.notify(f"Đang tải {repository}…", timeout=5)
+            with tempfile.TemporaryDirectory(prefix="ak-skills-") as temp:
+                skills = await self._remote_io(remote.download, repository, Path(temp) / "repo")
+                selected = await self.push_screen_wait(SkillSelectScreen(skills, self.mgr.home))
+                if selected is None:
+                    return
+                count = 0
+                for i in selected:
+                    skill = skills[i]
+                    overwrite = remote.exists(self.mgr.home, skill.name)
+                    if overwrite and not await self.push_screen_wait(ConfirmScreen(
+                        f"Ghi đè skill [{skill.name}] trong library?\nChỉnh sửa cũ sẽ mất; agent liên kết tới skill này cũng nhận bản mới."
+                    )):
+                        continue
+                    await self._remote_io(remote.install, self.mgr.home, skill, overwrite=overwrite)
+                    count += 1
+                self.notify(f"Đã cài {count}/{len(selected)} skill vào library.")
+        except (ValueError, OSError) as exc:
+            self.notify(str(exc), severity="error", timeout=8)
+        finally:
+            self._remote_busy = False
+            self.mgr.reload()
+            if self.is_running:
+                self.rebuild()
+
+    async def _remote_io(self, function, *args, **kwargs):
+        # Wait for background file operations before temporary-directory cleanup.
+        task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            try:
+                await task
+            finally:
+                raise
+
     def action_toggle(self) -> None:
         cur = self._current()
         if cur is None:
