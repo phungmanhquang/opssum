@@ -26,7 +26,7 @@ TUI quản lý **skills**, **MCP servers** và **instructions (AGENT file)** cho
 - **Xem riêng từng agent**: bấm `f` để chỉ hiện 1 agent, đúng như kịch bản "hôm sau vào thấy codex có 2 skill → gỡ bớt / cài thêm".
 - **An toàn**: không ghi đè file bạn tự viết, có backup trước khi sửa config, chỉ gỡ những gì chính nó tạo.
 
-> **Lưu ý trung thực:** logic cài/gỡ đã được test tự động (12 test, môi trường giả lập `HOME`),
+> **Lưu ý:** logic cài/gỡ được kiểm thử tự động trong môi trường giả lập `HOME`,
 > nhưng **chưa được kiểm chứng với binary thật** của từng agent trên máy bạn. Đường dẫn config của
 > các agent đổi khá thường xuyên — xem mục [Đường dẫn từng agent](#đường-dẫn-từng-agent) và hãy chạy
 > `agent-knowledge agents` để kiểm tra trước khi cài thật. Mọi đường dẫn đều override được.
@@ -84,7 +84,8 @@ Có thể để thư mục này trong git (Gitea) để cả team dùng chung.
 ```
 ~/.agent-knowledge/
 ├── skills/
-│   └── <skill-name>/SKILL.md          # + file phụ (scripts/, references/...)
+│   ├── anthropics/<skill-name>/SKILL.md  # nhóm theo GitHub owner
+│   └── <skill-name>/SKILL.md            # skill cũ / nhập bằng m: other
 ├── mcp/
 │   └── <server-name>.json             # 1 server / file
 ├── instructions/
@@ -175,6 +176,7 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 | `A` / `X` | cài / gỡ item cho **tất cả** agent |
 | `m` | nhập item external (`◌`) vào library (skill, MCP) |
 | `i` | Install skills: nhập GitHub `owner/repo`, chọn skills để tải vào library |
+| `d` | xoá skill khỏi library, gỡ liên kết global và các project đã ghi nhận (có xác nhận) |
 | `1` `2` `3` hoặc `[` `]` | đổi tab |
 | `f` | lọc theo 1 agent (xoay vòng: all → claude → codex → …) |
 | `o` | chỉ hiện item đã cài |
@@ -200,7 +202,7 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 
 | Loại | Cơ chế | Gỡ |
 |---|---|---|
-| **Skill** | `symlink` từ thư mục agent → `~/.agent-knowledge/skills/<name>` (sửa 1 chỗ, mọi agent cùng thấy). Nếu OS không cho tạo symlink (Windows chưa bật Developer Mode) → tự **copy** kèm file `.agent-knowledge` | Chỉ gỡ symlink/copy do chính tool tạo. Thư mục skill bạn tự cài → hiện `◌`, **không** xoá |
+| **Skill** | `symlink` từ thư mục agent → skill trong library (sửa 1 chỗ, mọi agent cùng thấy). Nếu OS không cho tạo symlink → báo lỗi và giữ bản cũ. Bản copy do tool cũ tạo được chuyển thành symlink khi cài lại | Chỉ gỡ symlink/copy do chính tool tạo. Thư mục skill bạn tự cài → hiện `◌`, **không** xoá |
 | **Instruction** | Chèn block có marker vào file memory | Xoá đúng block |
 | **MCP (JSON)** | Sửa key `mcpServers.<name>`, giữ nguyên mọi key khác; giữ quyền file (vd `~/.claude.json` mode 600); **backup** `<file>.agent-knowledge.bak` trước mỗi lần ghi; file JSON hỏng → từ chối ghi | Xoá key `<name>` (server tự khai báo sẽ hỏi xác nhận) |
 | **MCP (Codex TOML)** | Chèn block `# >>> agent-knowledge:<name> >>>` vào `config.toml`, không parse/ghi lại cả file | Xoá block. Server bạn khai báo tay trong `config.toml` chỉ đọc, không gỡ từ TUI |
@@ -274,6 +276,8 @@ ak install   anthropics/skills                                         # chọn 
 ak install   skill:commit-helper mcp:context7 -a claude -a codex          # global
 ak install   instruction:coding-style --all-agents -s project --project ~/work/myapp
 ak uninstall skill:commit-helper -a codex
+ak install   skill:anthropics/pdf -a codex               # liên kết skill của một nhà phát hành
+ak uninstall skill:anthropics/pdf --library              # xoá khỏi library và gỡ mọi liên kết đã ghi nhận
 ```
 
 Mã thoát `1` nếu có thao tác thất bại.
@@ -282,18 +286,62 @@ Mã thoát `1` nếu có thao tác thất bại.
 
 Trong TUI, nhấn **`i` — Install skills**, nhập `anthropics/skills` hoặc repository
 GitHub khác theo dạng `owner/repo`. Dùng ↑ ↓ và Space để chọn nhiều skill, Enter
-để cài, Esc để huỷ. Skill đã có trong library sẽ được hỏi xác nhận trước khi ghi đè.
+để cài, Esc để huỷ. Checkbox có cột riêng; mô tả màu xám được rút gọn trong danh sách.
+Nhấn `i` ở skill đang chọn để đọc toàn bộ mô tả, dùng ↑ ↓ để cuộn, Esc hoặc `i`
+để quay lại và giữ nguyên lựa chọn. Skill đã có trong library sẽ được hỏi xác nhận trước khi ghi đè.
 
 CLI: `ak install anthropics/skills`, sau đó nhập các số cách nhau bằng dấu phẩy
 (ví dụ `1,3`) hoặc `all`. Enter khi chưa nhập gì sẽ huỷ. Khi hỏi ghi đè, nhập `y`
 để đồng ý; các câu trả lời khác sẽ bỏ qua skill đó.
 
 Cần Git và kết nối GitHub. Tool tải nhánh mặc định, tìm các thư mục có `SKILL.md`
-và chép cả tài nguyên đi kèm vào `~/.agent-knowledge/skills/<name>`
+và chép cả tài nguyên đi kèm vào `~/.agent-knowledge/skills/<owner>/<name>`
 (hoặc library từ `--home` / `AGENT_KNOWLEDGE_HOME`). Sau đó dùng thao tác cài/gỡ
 hiện có để liên kết skill với agent. Ghi đè library cũng cập nhật nội dung mà các
 agent đang liên kết bằng symlink sử dụng. Repository có tên skill trùng nhau hoặc
 skill chứa symlink sẽ báo lỗi.
+
+### Nhóm nhà phát hành, đồng bộ và gỡ skills
+
+Owner GitHub là tên nhóm: `anthropics/skills` và các repository khác của `anthropics`
+cùng lưu dưới `skills/anthropics/`. Bảng Skills có divider phân nhóm nhà phát hành.
+Skill cũ và skill nhập bằng `m` giữ đường dẫn `skills/<name>` và thuộc nhóm
+**other**; tool không tự đoán nhà phát hành hoặc di chuyển skill cũ.
+Các skill chưa được library quản lý nằm riêng trong khối **External**, kể cả khi
+trùng tên với skill đã có trong library.
+
+Hai nhà phát hành có thể có skill trùng tên. Trong CLI dùng tên đầy đủ như
+`skill:anthropics/pdf`. Agent nhận symlink `<thư-mục-skills-agent>/pdf` trỏ thẳng
+vào bản đã chọn trong library. Khi đổi sang nhà phát hành khác có cùng tên skill,
+TUI và CLI hỏi xác nhận trước khi thay symlink. Cập nhật trong library sẽ được
+mọi agent đang liên kết tới bản đó sử dụng ngay.
+
+Phím **`m`** trên skill external chuyển thư mục gốc vào library và thay vị trí cũ
+bằng symlink. Nếu nguồn vốn là symlink, tool copy nội dung và tài nguyên đi kèm
+vào library, rồi thay symlink ở agent bằng symlink mới trỏ tới library; thư mục
+nguồn thật được giữ nguyên. Nếu thao tác thất bại, tool khôi phục bản cũ.
+Luồng nhập MCP không thay đổi.
+
+Mỗi lần mở TUI, ứng dụng quét các thư mục skills global của agent và các thư mục
+skills trong project hiện tại. Nếu có skill chưa được quản lý, hộp thoại đồng bộ
+hiện hai khối **Global skills** và **Project skills**, mặc định chọn tất cả.
+Nhấn Space để chọn/bỏ từng dòng, Enter để đồng bộ các dòng đã chọn, Esc để đóng
+mà không import. Đường dẫn dùng chung giữa nhiều agent chỉ xuất hiện một lần
+trong mỗi khối. Ứng dụng không quét các project khác ở bước này.
+
+Các bản trùng tên và giống nội dung dùng chung bản trong library. Nếu nội dung
+khác, ứng dụng hỏi trước khi ghi đè; từ chối sẽ giữ nguyên nguồn đó và tiếp tục
+các dòng khác. Skill đã liên kết với library không được hỏi lại ở lần mở sau.
+
+Phím **`d`** trên skill trong library hoặc `ak uninstall skill:owner/name --library`
+hiện các đường dẫn bị ảnh hưởng và hỏi xác nhận. Đồng ý sẽ gỡ các liên kết ở global
+và các project đã ghi nhận, rồi chuyển skill cùng bản sao các liên kết vào
+`<library>/.trash/<id>/`. `manifest.json` tại đó lưu đường dẫn cũ để khôi phục thủ công.
+Skill của nhà phát hành khác và thư mục external cùng tên được giữ nguyên.
+
+Ứng dụng lưu các thư mục đã liên kết trong `<library>/.skill-locations.json`.
+Project từng cài bằng phiên bản cũ cần được mở lại một lần (hoặc chọn bằng `P`)
+để ghi nhận symlink. Ứng dụng không tự quét toàn bộ ổ đĩa để tìm project chưa biết.
 
 ## 9. Secrets (token, API key)
 
@@ -303,8 +351,8 @@ khai báo MCP không kèm secret trong library, rồi thêm secret bằng tay v�
 
 ## 10. Windows
 
-- Tạo symlink cần **Developer Mode** (Settings → For developers) hoặc quyền admin. Không có → tool tự **copy** skill (kèm marker),
-  khi sửa skill trong library hãy gỡ rồi cài lại để cập nhật.
+- Tạo symlink cần **Developer Mode** (Settings → For developers) hoặc quyền admin.
+  Nếu không tạo được symlink, tool báo lỗi và giữ bản cũ; hãy bật quyền rồi cài lại.
 - Dùng Windows Terminal để hiển thị Unicode (`●○◐◌`) đúng.
 - `~` được hiểu là `%USERPROFILE%`.
 
@@ -323,7 +371,7 @@ khai báo MCP không kèm secret trong library, rồi thêm secret bằng tay v�
 
 ```bash
 pip install -e ".[dev]"
-pytest -q            # 12 test: ops cho skill/instruction/MCP (JSON + TOML) + smoke test TUI bằng Textual Pilot
+pytest -q            # ops, nhóm skill, symlink, khôi phục khi lỗi và TUI bằng Textual Pilot
 ```
 
 Cấu trúc code:

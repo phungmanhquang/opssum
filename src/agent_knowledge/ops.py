@@ -1,7 +1,7 @@
 """Logic cài đặt / gỡ / đọc trạng thái cho từng loại item và từng agent.
 
 Nguyên tắc an toàn:
-  * Skill   : symlink (fallback copy + file marker). Chỉ gỡ thứ do mình tạo.
+  * Skill   : symlink tới library. Chỉ gỡ thứ do mình tạo.
   * Instr.  : chèn block có marker `<!-- agent-knowledge:begin NAME -->` vào file
               AGENTS.md / CLAUDE.md / GEMINI.md, không đụng phần còn lại.
   * MCP json: sửa key `mcpServers.<name>`, giữ nguyên mọi key khác, backup trước khi ghi.
@@ -10,14 +10,17 @@ Nguyên tắc an toàn:
 from __future__ import annotations
 
 import json
+import filecmp
 import os
 import re
 import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from .agents import AgentSpec, load_agents
-from .catalog import Item, Library, normalize_mcp
+from .catalog import Item, Library, NAME_RE, normalize_mcp
+from .skill_storage import remember_locations, linked_paths, remove_from_library
 
 MARKER = ".agent-knowledge"          # file đánh dấu skill được cài bằng copy
 BACKUP_SUFFIX = ".agent-knowledge.bak"
@@ -39,6 +42,19 @@ class State:
 class Result:
     ok: bool
     msg: str
+
+
+class SkillConflict(OpsError):
+    """The caller must obtain overwrite confirmation before retrying."""
+
+
+@dataclass(frozen=True)
+class ExternalSkill:
+    name: str
+    agent_id: str
+    scope: str
+    path: Path
+    agents: tuple[str, ...] = ()
 
 
 # ----------------------------------------------------------------- file utils
@@ -84,7 +100,7 @@ def _skill_managed(p: Path, lib_skills: Path) -> bool:
 
 def skill_states(spec: AgentSpec, scope: str, project: Path, lib: Library) -> dict[str, State]:
     d = spec.resolve("skills", scope, project)
-    names = {i.name for i in lib.items("skill")}
+    items = lib.items("skill")
     present: dict[str, Path] = {}
     if d is not None and d.is_dir():
         for c in sorted(d.iterdir(), key=lambda p: p.name.lower()):
@@ -93,20 +109,25 @@ def skill_states(spec: AgentSpec, scope: str, project: Path, lib: Library) -> di
             if c.is_symlink() or (c.is_dir() and (c / "SKILL.md").is_file()):
                 present[c.name] = c
     out: dict[str, State] = {}
+    for item in items:
+        c = present.get(item.skill_name)
+        if c is None:
+            out[item.name] = State("absent")
+            continue
+        managed = _skill_managed(c, lib.dir_for("skill"))
+        if c.is_symlink() and _real(c) == _real(item.path):
+            out[item.name] = State("installed" if c.exists() else "outdated")
+        elif managed and not c.is_symlink() and _read_text(c / MARKER).strip() == str(item.path):
+            out[item.name] = State("outdated", detail="bản copy cũ; nhấn u để chuyển sang symlink")
+        elif managed:
+            out[item.name] = State("absent", detail="agent đang dùng bản cùng tên từ nguồn khác")
+        else:
+            out[item.name] = State("external", False, False, "đã có skill ngoài library cùng tên")
     for name, c in present.items():
         managed = _skill_managed(c, lib.dir_for("skill"))
-        broken = c.is_symlink() and not c.exists()
-        if name in names:
-            if managed:
-                out[name] = State("outdated", True, True, "symlink bị hỏng") if broken else State("installed")
-            else:
-                out[name] = State("external", False, False,
-                                  "đã có bản không do agent-knowledge quản lý (cùng tên)")
-        else:
+        if name not in {i.skill_name for i in items} or (not managed and name not in {i.name for i in items}):
             out[name] = State("external", managed, managed,
                               "orphan: không còn trong library" if managed else "skill tự cài, chưa có trong library")
-    for n in names - present.keys():
-        out[n] = State("absent")
     return out
 
 
@@ -117,39 +138,52 @@ def _unlink_dir(p: Path) -> None:
         os.rmdir(p)                          # Windows: directory symlink/junction
 
 
-def skill_install(spec, scope, project, lib, item: Item, mode: str = "symlink") -> Result:
+def skill_install(spec, scope, project, lib, item: Item, mode: str = "symlink", replace: bool = False) -> Result:
     d = spec.resolve("skills", scope, project)
     if d is None:
         return Result(False, f"{spec.label} không hỗ trợ skills ở scope {scope}")
     st = skill_states(spec, scope, project, lib).get(item.name)
-    target = d / item.name
-    if st and st.status == "installed":
+    target = d / item.skill_name
+    if st and st.status == "installed" and target.is_symlink() and _real(target) == _real(item.path):
         return Result(True, f"{item.name} đã được cài cho {spec.label}")
     if st and st.status == "external" and not st.managed:
         return Result(False, f"{target} đã tồn tại và không do agent-knowledge quản lý")
-    if os.path.lexists(target):
-        skill_uninstall(spec, scope, project, lib, item.name)
+    if os.path.lexists(target) and st and st.status == "absent" and not replace:
+        return Result(False, f"{target} đang dùng bản cùng tên từ nguồn khác; cần xác nhận thay thế.")
+    if mode != "symlink":
+        return Result(False, "Skills cần dùng symlink để mọi agent nhận cập nhật từ library.")
     d.mkdir(parents=True, exist_ok=True)
-    if mode == "symlink":
+    with tempfile.TemporaryDirectory(prefix=".ak-link-", dir=d) as temp:
+        link, backup = Path(temp) / "link", Path(temp) / "backup"
+        # Create the link before touching the old installation. No copy fallback.
+        os.symlink(_real(item.path), link, target_is_directory=True)
+        had_old = os.path.lexists(target)
+        if had_old:
+            target.rename(backup)
         try:
-            os.symlink(item.path, target, target_is_directory=True)
-            return Result(True, f"Đã cài skill {item.name} → {target} (symlink)")
+            link.rename(target)
         except OSError:
-            pass                              # Windows không có quyền symlink -> copy
-    shutil.copytree(item.path, target, symlinks=True)
-    (target / MARKER).write_text(str(item.path), encoding="utf-8")
-    return Result(True, f"Đã cài skill {item.name} → {target} (copy)")
+            if had_old:
+                backup.rename(target)
+            raise
+    return Result(True, f"Đã cài skill {item.name} → {target} (symlink)")
 
 
 def skill_uninstall(spec, scope, project, lib, name: str) -> Result:
     d = spec.resolve("skills", scope, project)
     if d is None:
         return Result(False, "không hỗ trợ")
-    target = d / name
+    item = lib.get("skill", name)
+    leaf = item.skill_name if item else name
+    if not NAME_RE.fullmatch(leaf):
+        return Result(False, "Tên skill không hợp lệ hoặc không có trong library.")
+    target = d / leaf
     if not os.path.lexists(target):
         return Result(True, f"{name} chưa được cài cho {spec.label}")
     if not _skill_managed(target, lib.dir_for("skill")):
         return Result(False, f"{target} không do agent-knowledge tạo — hãy xoá tay nếu chắc chắn")
+    if item and skill_states(spec, scope, project, lib)[name].status == "absent":
+        return Result(True, f"{name} chưa được cài; giữ nguyên bản của nhà phát hành khác.")
     if target.is_symlink():
         _unlink_dir(target)
     else:
@@ -157,15 +191,77 @@ def skill_uninstall(spec, scope, project, lib, name: str) -> Result:
     return Result(True, f"Đã gỡ skill {name} khỏi {spec.label}")
 
 
-def skill_adopt(spec, scope, project, lib, name: str) -> Result:
-    src = spec.resolve("skills", scope, project) / name
+def _same_tree(left: Path, right: Path) -> bool:
+    comparison = filecmp.dircmp(left, right, ignore=[MARKER])
+    if comparison.left_only or comparison.right_only or comparison.common_funny:
+        return False
+    if any(not filecmp.cmp(left / name, right / name, shallow=False) for name in comparison.common_files):
+        return False
+    return all(_same_tree(left / name, right / name) for name in comparison.common_dirs)
+
+
+def skill_adopt(spec, scope, project, lib, name: str, *, overwrite: bool = False) -> Result:
+    if not NAME_RE.fullmatch(name):
+        return Result(False, "Tên skill nhập vào không hợp lệ.")
+    directory = spec.resolve("skills", scope, project)
+    if directory is None:
+        return Result(False, "Agent không hỗ trợ skills ở scope này.")
+    src = directory / name
     dst = lib.dir_for("skill") / name
-    if dst.exists():
-        return Result(False, f"library đã có skills/{name}")
     if not (src / "SKILL.md").is_file():
         return Result(False, f"{src} không phải skill hợp lệ")
-    shutil.copytree(src, dst, symlinks=False)
-    return Result(True, f"Đã nhập skill {name} vào library (bản gốc ở agent giữ nguyên)")
+    if src.is_symlink() and _skill_managed(src, lib.dir_for("skill")):
+        return Result(True, f"{name} đã liên kết với library.")
+    if os.path.lexists(dst) and (dst.is_symlink() or not (dst / "SKILL.md").is_file()):
+        return Result(False, f"{dst} không phải thư mục skill có thể đồng bộ.")
+    if _inside(dst, src):
+        return Result(False, "Thư mục nguồn chứa đường dẫn library; không thể copy vào chính nó.")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    was_symlink = src.is_symlink()
+    # Stage a complete, independent copy before touching either original path.
+    library_temp = Path(tempfile.mkdtemp(prefix=".ak-import-", dir=dst.parent))
+    agent_temp = None
+    keep_backups = False
+    try:
+        agent_temp = Path(tempfile.mkdtemp(prefix=".ak-adopt-", dir=directory))
+        stage, old_library = Path(library_temp) / "new", Path(library_temp) / "old"
+        link, old_source = Path(agent_temp) / "link", Path(agent_temp) / "old"
+        shutil.copytree(src, stage, symlinks=False)
+        had_library = os.path.lexists(dst)
+        reuse = had_library and _same_tree(stage, dst)
+        if had_library and not reuse and not overwrite:
+            raise SkillConflict(f"Library đã có {name} với nội dung khác.")
+        os.symlink(_real(dst), link, target_is_directory=True)
+        saved_library = installed_library = saved_source = False
+        try:
+            if not reuse:
+                if had_library:
+                    dst.rename(old_library)
+                    saved_library = True
+                stage.rename(dst)
+                installed_library = True
+            src.rename(old_source)
+            saved_source = True
+            link.rename(src)
+        except OSError:
+            try:
+                if saved_source:
+                    old_source.rename(src)
+                if installed_library:
+                    dst.rename(stage)
+                if saved_library:
+                    old_library.rename(dst)
+            except OSError as exc:
+                keep_backups = True
+                raise OpsError(f"Không thể khôi phục tự động. Dữ liệu được giữ tại {library_temp} và {agent_temp}: {exc}") from exc
+            raise
+    finally:
+        if not keep_backups:
+            shutil.rmtree(library_temp)
+            if agent_temp is not None:
+                shutil.rmtree(agent_temp)
+    detail = "Nguồn thật được giữ nguyên; symlink agent đã được thay." if was_symlink else "Thư mục gốc được thay bằng symlink."
+    return Result(True, f"Đã đồng bộ {name} vào library. {detail}")
 
 
 # ============================================================ INSTRUCTIONS
@@ -441,17 +537,85 @@ class Manager:
     """Điểm vào duy nhất cho TUI và CLI."""
 
     def __init__(self, home: Path, project: Path | None = None, skill_mode: str = "symlink"):
-        self.home = Path(home)
+        self.home = Path(home).expanduser().resolve()
         self.project = Path(project or Path.cwd())
         self.skill_mode = skill_mode
         self.agents = load_agents(self.home)
         self.lib = Library(self.home)
         self.errors: dict[tuple[str, str, str], str] = {}
+        self.remember_skill_locations()
+
+    def skill_locations(self) -> list[Path]:
+        return [p for spec in self.agent_list() for scope in ("global", "project")
+                if (p := spec.resolve("skills", scope, self.project)) is not None]
+
+    def external_skills(self) -> tuple[list[ExternalSkill], list[str]]:
+        found: dict[tuple[str, Path], ExternalSkill] = {}
+        errors = []
+        for scope in ("global", "project"):
+            for spec in self.agent_list():
+                directory = spec.resolve("skills", scope, self.project)
+                if directory is None or not directory.is_dir():
+                    continue
+                try:
+                    for path in sorted(directory.iterdir()):
+                        if not NAME_RE.fullmatch(path.name) or not (path / "SKILL.md").is_file():
+                            continue
+                        if _skill_managed(path, self.lib.dir_for("skill")):
+                            continue
+                        # Resolve the containing directory, not the skill symlink:
+                        # distinct agent links pointing to the same source all need replacing.
+                        key = (scope, path.parent.resolve() / path.name)
+                        previous = found.get(key)
+                        agents = (*previous.agents, spec.id) if previous else (spec.id,)
+                        found[key] = ExternalSkill(path.name, previous.agent_id if previous else spec.id,
+                                                   scope, path, agents)
+                except OSError as exc:
+                    errors.append(f"{directory}: {exc}")
+        return list(found.values()), errors
+
+    def remember_skill_locations(self) -> None:
+        # Opening an older project records its existing library links.
+        try:
+            locations = [p for p in self.skill_locations() if p.is_dir() and any(
+                _skill_managed(c, self.lib.dir_for("skill")) for c in p.iterdir() if not c.name.startswith("."))]
+            if locations:
+                remember_locations(self.home, locations)
+        except (ValueError, OSError) as exc:
+            self.lib.errors.append(f"Không ghi nhận được đường dẫn skills: {exc}")
+
+    def skill_conflict(self, agent_id: str, scope: str, name: str) -> str | None:
+        item = self.lib.get("skill", name)
+        target = self.target_path(agent_id, scope, "skill", name)
+        if item and target and os.path.lexists(target) and _skill_managed(target, self.lib.dir_for("skill")):
+            source = _real(target) if target.is_symlink() else _real(Path(_read_text(target / MARKER).strip()))
+            if source != _real(item.path):
+                return next((i.name for i in self.lib.items("skill") if _real(i.path) == source), str(source))
+        return None
+
+    def skill_dependents(self, name: str) -> list[Path]:
+        item = self.lib.get("skill", name)
+        if item is None:
+            raise OpsError(f"Library không có skill {name}")
+        return linked_paths(self.home, item.path, self.skill_locations())
+
+    def remove_skill(self, name: str) -> Result:
+        item = self.lib.get("skill", name)
+        if item is None:
+            return Result(False, f"Library không có skill {name}")
+        try:
+            paths = self.skill_dependents(name)
+            trash = remove_from_library(self.home, item.path, paths)
+            self.lib.load()
+            return Result(True, f"Đã gỡ {name} khỏi library và {len(paths)} vị trí agent. Bản khôi phục: {trash}")
+        except (OSError, ValueError) as exc:
+            return Result(False, str(exc))
 
     def reload(self) -> None:
         self.agents = load_agents(self.home)
         self.lib.load()
         self.errors.clear()
+        self.remember_skill_locations()
 
     def agent_list(self) -> list[AgentSpec]:
         return list(self.agents.values())
@@ -476,7 +640,8 @@ class Manager:
         spec = self.agents[agent_id]
         if kind == "skill":
             d = spec.resolve("skills", scope, self.project)
-            return d / name if d else None
+            item = self.lib.get("skill", name)
+            return d / (item.skill_name if item else name) if d else None
         return spec.resolve("instr" if kind == "instruction" else "mcp", scope, self.project)
 
     def shared_with(self, agent_id: str, scope: str, kind: str) -> list[str]:
@@ -488,18 +653,21 @@ class Manager:
                 if a.id != agent_id and a.resolve(what, scope, self.project) == mine]
 
     # ---- actions
-    def install(self, agent_id: str, scope: str, kind: str, name: str) -> Result:
+    def install(self, agent_id: str, scope: str, kind: str, name: str, *, replace: bool = False) -> Result:
         item = self.lib.get(kind, name)
         if item is None:
             return Result(False, f"library không có {kind}:{name}")
         spec = self.agents[agent_id]
         try:
             if kind == "skill":
-                return skill_install(spec, scope, self.project, self.lib, item, self.skill_mode)
+                directory = spec.resolve("skills", scope, self.project)
+                if directory:
+                    remember_locations(self.home, [directory])
+                return skill_install(spec, scope, self.project, self.lib, item, self.skill_mode, replace)
             if kind == "instruction":
                 return instr_install(spec, scope, self.project, self.lib, item)
             return mcp_install(spec, scope, self.project, self.lib, item)
-        except OpsError as e:
+        except (OpsError, ValueError) as e:
             return Result(False, str(e))
         except OSError as e:
             return Result(False, f"Lỗi I/O: {e}")
@@ -512,21 +680,26 @@ class Manager:
             if kind == "instruction":
                 return instr_uninstall(spec, scope, self.project, self.lib, name)
             return mcp_uninstall(spec, scope, self.project, self.lib, name)
-        except OpsError as e:
+        except (OpsError, ValueError) as e:
             return Result(False, str(e))
         except OSError as e:
             return Result(False, f"Lỗi I/O: {e}")
 
-    def adopt(self, agent_id: str, scope: str, kind: str, name: str) -> Result:
+    def adopt(self, agent_id: str, scope: str, kind: str, name: str, *, overwrite: bool = False) -> Result:
         spec = self.agents[agent_id]
         try:
             if kind == "skill":
-                r = skill_adopt(spec, scope, self.project, self.lib, name)
+                directory = spec.resolve("skills", scope, self.project)
+                if directory:
+                    remember_locations(self.home, [directory])
+                r = skill_adopt(spec, scope, self.project, self.lib, name, overwrite=overwrite)
             elif kind == "mcp":
                 r = mcp_adopt(spec, scope, self.project, self.lib, name)
             else:
                 return Result(False, "Instructions chỉ nhập thủ công (copy nội dung vào instructions/<name>.md)")
-        except OpsError as e:
+        except SkillConflict:
+            raise
+        except (OpsError, ValueError) as e:
             return Result(False, str(e))
         except OSError as e:
             return Result(False, f"Lỗi I/O: {e}")

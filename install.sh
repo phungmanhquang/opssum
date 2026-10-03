@@ -4,14 +4,17 @@ set -euo pipefail
 cd "$(dirname "$0")"
 
 if command -v pipx >/dev/null 2>&1; then
-  pipx install --force .
+  # pipx chọn uv làm backend khi uv có sẵn. Với venv đã tồn tại, pipx
+  # --force vẫn gọi `uv venv`; uv cần được yêu cầu xóa venv cũ trước.
+  UV_VENV_CLEAR=1 pipx install --force .
 elif command -v uv >/dev/null 2>&1; then
   uv tool install --force .
 else
   PY=${PYTHON:-python3}
   "$PY" -c 'import sys; assert sys.version_info >= (3, 10), "cần Python >= 3.10"'
   VENV="${AGENT_KNOWLEDGE_VENV:-$HOME/.local/share/agent-knowledge/venv}"
-  "$PY" -m venv "$VENV"
+  # --clear giúp script chạy lại được khi venv riêng đã tồn tại.
+  "$PY" -m venv --clear "$VENV"
   "$VENV/bin/pip" install --upgrade pip >/dev/null
   "$VENV/bin/pip" install --force-reinstall .
   mkdir -p "$HOME/.local/bin"

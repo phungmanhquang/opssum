@@ -3,7 +3,7 @@
 Cấu trúc:
 
     .agent-knowledge/
-    ├── skills/<name>/SKILL.md        # Agent Skills format
+    ├── skills/[<publisher>/]<name>/SKILL.md
     ├── mcp/<name>.json               # 1 server / file (hoặc dạng {"mcpServers": {...}})
     ├── instructions/<name>.md        # mảnh AGENTS.md / CLAUDE.md
     └── agents.json                   # (tuỳ chọn) override đường dẫn của từng agent
@@ -46,6 +46,11 @@ class Item:
     path: Path | None = None          # skill dir / instruction file / mcp file
     spec: dict | None = None          # mcp: normalized spec
     body: str = ""                    # instruction: nội dung (đã bỏ frontmatter)
+    publisher: str = ""
+
+    @property
+    def skill_name(self) -> str:
+        return self.name.rsplit("/", 1)[-1]
 
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
@@ -137,17 +142,21 @@ class Library:
         out: list[Item] = []
         if not root.is_dir():
             return out
-        for d in sorted(root.iterdir(), key=lambda p: p.name.lower()):
-            if d.name.startswith(".") or not d.is_dir():
-                continue
-            md = d / "SKILL.md"
-            if not md.is_file():
-                continue
-            if not NAME_RE.match(d.name):
-                self.errors.append(f"skills/{d.name}: tên thư mục không hợp lệ")
-                continue
-            meta, _ = parse_frontmatter(md.read_text(encoding="utf-8", errors="replace"))
-            out.append(Item("skill", d.name, _squash(meta.get("description", "")), d))
+        def scan(directory: Path, publisher: str = "") -> None:
+            for d in sorted(directory.iterdir(), key=lambda p: p.name.lower()):
+                if d.name.startswith(".") or not d.is_dir():
+                    continue
+                if not NAME_RE.fullmatch(d.name):
+                    self.errors.append(f"{d}: tên thư mục không hợp lệ")
+                    continue
+                md = d / "SKILL.md"
+                if md.is_file():
+                    meta, _ = parse_frontmatter(md.read_text(encoding="utf-8", errors="replace"))
+                    name = f"{publisher}/{d.name}" if publisher else d.name
+                    out.append(Item("skill", name, _squash(meta.get("description", "")), d, publisher=publisher))
+                elif not publisher and not d.is_symlink():
+                    scan(d, d.name)
+        scan(root)
         return out
 
     def _scan_instructions(self) -> list[Item]:

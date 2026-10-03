@@ -9,7 +9,7 @@ from pathlib import Path
 
 from . import __version__
 from .catalog import KIND_ALIASES, KIND_LABEL, KINDS, default_home
-from .ops import Manager
+from .ops import Manager, OpsError
 from .scaffold import init_library
 from . import remote
 
@@ -49,6 +49,8 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("-a", "--agent", action="append", help="agent đích (lặp được)")
         sp.add_argument("--all-agents", action="store_true", help="áp dụng cho mọi agent")
         sp.add_argument("-s", "--scope", choices=("global", "project"), default="global")
+        if name == "uninstall":
+            sp.add_argument("--library", action="store_true", help="xoá skill khỏi library và gỡ các liên kết agent đã ghi nhận")
     return ap
 
 
@@ -123,10 +125,48 @@ def cmd_apply(mgr: Manager, args, install: bool) -> int:
     for aid in _targets(mgr, args):
         for ref in args.items:
             kind, name = _parse_ref(ref)
-            r = mgr.install(aid, args.scope, kind, name) if install else mgr.uninstall(aid, args.scope, kind, name)
+            replace = False
+            if install and kind == "skill" and (conflict := mgr.skill_conflict(aid, args.scope, name)):
+                try:
+                    replace = input(f"{aid} đang dùng {conflict}. Đổi sang {name}? [y/N]: ").strip().lower() == "y"
+                except EOFError:
+                    replace = False
+                if not replace:
+                    print(f"[{aid}] Bỏ qua {name}")
+                    continue
+            r = mgr.install(aid, args.scope, kind, name, replace=replace) if install else mgr.uninstall(aid, args.scope, kind, name)
             print(f"[{aid}] {'✔' if r.ok else '✘'} {r.msg}")
             fails += not r.ok
     return 1 if fails else 0
+
+
+def cmd_remove(mgr: Manager, args) -> int:
+    if args.agent or args.all_agents:
+        raise SystemExit("--library tự gỡ mọi liên kết đã ghi nhận; không dùng cùng --agent/--all-agents.")
+    names = []
+    for ref in args.items:
+        kind, name = _parse_ref(ref)
+        if kind != "skill":
+            raise SystemExit("--library chỉ hỗ trợ skill.")
+        names.append(name)
+    fails = 0
+    for name in names:
+        try:
+            paths = mgr.skill_dependents(name)
+            print(f"Xoá {name} khỏi library; gỡ {len(paths)} vị trí agent:")
+            for path in paths:
+                print(f"  {path}")
+            if input("Bản khôi phục lưu trong library/.trash. Đồng ý? [y/N]: ").strip().lower() != "y":
+                continue
+            result = mgr.remove_skill(name)
+            print(result.msg)
+            fails += not result.ok
+        except EOFError:
+            return 1
+        except (OSError, ValueError, OpsError) as exc:
+            print(str(exc), file=sys.stderr)
+            fails += 1
+    return int(bool(fails))
 
 
 def cmd_remote(mgr: Manager, repository: str) -> int:
@@ -135,8 +175,8 @@ def cmd_remote(mgr: Manager, repository: str) -> int:
             print(f"Đang tải {repository}…")
             skills = remote.download(repository, Path(temp) / "repo")
             for i, skill in enumerate(skills, 1):
-                tag = " (đã có)" if remote.exists(mgr.home, skill.name) else ""
-                print(f"{i}. {skill.name}{tag} — {skill.description}")
+                tag = " (đã có)" if remote.exists(mgr.home, skill) else ""
+                print(f"{i}. {skill.reference}{tag} — {skill.description}")
             while True:
                 answer = input("Chọn số cách nhau bằng dấu phẩy (vd 1,3), all = tất cả; Enter = huỷ: ").strip()
                 if not answer:
@@ -151,12 +191,12 @@ def cmd_remote(mgr: Manager, repository: str) -> int:
                     print("Lựa chọn không hợp lệ.")
             for i in indices:
                 skill = skills[i]
-                overwrite = remote.exists(mgr.home, skill.name)
+                overwrite = remote.exists(mgr.home, skill)
                 if overwrite and input(f"Ghi đè {skill.name}? Chỉnh sửa cũ sẽ mất. [y/N]: ").strip().lower() != "y":
                     print(f"Bỏ qua {skill.name}")
                     continue
                 remote.install(mgr.home, skill, overwrite=overwrite)
-                print(f"✔ {mgr.home / 'skills' / skill.name}")
+                print(f"✔ {mgr.home / 'skills' / skill.reference}")
         return 0
     except (ValueError, OSError) as exc:
         print(f"✘ {exc}", file=sys.stderr)
@@ -183,7 +223,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "list":
         return cmd_list(mgr, args)
     if args.cmd in ("install", "uninstall"):
-        if args.cmd == "install" and any("/" in item for item in args.items):
+        if args.cmd == "uninstall" and args.library:
+            return cmd_remove(mgr, args)
+        if args.cmd == "install" and any("/" in item and ":" not in item for item in args.items):
             if len(args.items) != 1 or args.agent or args.all_agents or args.scope != "global":
                 raise SystemExit("Dùng ak install owner/repo để nhập vào library; cài cho agent bằng kind:name riêng.")
             return cmd_remote(mgr, args.items[0])

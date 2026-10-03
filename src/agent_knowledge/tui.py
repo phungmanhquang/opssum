@@ -9,14 +9,14 @@ from pathlib import Path
 from rich.text import Text
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
+from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Input, Static, SelectionList
+from textual.widgets import DataTable, Footer, Input, Static
 
 from . import __version__
 from . import remote
 from .catalog import KIND_LABEL, KINDS, Item
-from .ops import Manager, Result, State
+from .ops import Manager, Result, State, ExternalSkill, SkillConflict
 
 ACCENT = "#d97757"
 OK = "#4eba65"
@@ -46,6 +46,10 @@ class Row:
     item: Item | None
     states: dict[str, State | None]
 
+    @property
+    def key(self) -> str:
+        return f"@external:{self.name}" if self.kind == "skill" and self.item is None else self.name
+
 
 # ----------------------------------------------------------------- modals
 class ConfirmScreen(ModalScreen[bool]):
@@ -57,8 +61,13 @@ class ConfirmScreen(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Static(Text.assemble(("Xác nhận\n\n", f"bold {ACCENT}"), self.message,
-                                       ("\n\n[y] đồng ý    [n] huỷ", DIM)))
+            yield Static(Text("Xác nhận", style=f"bold {ACCENT}"))
+            with VerticalScroll(id="confirm-message"):
+                yield Static(Text(self.message))
+            yield Static(Text("[y] đồng ý    [n] huỷ", style=DIM))
+
+    def on_mount(self) -> None:
+        self.query_one("#confirm-message", VerticalScroll).focus()
 
     def action_yes(self) -> None:
         self.dismiss(True)
@@ -88,36 +97,177 @@ class PromptScreen(ModalScreen["str | None"]):
         self.dismiss(None)
 
 
+class SkillDescriptionScreen(ModalScreen[None]):
+    BINDINGS = [Binding("escape,i", "close", "Quay lại")]
+
+    def __init__(self, skill: remote.RemoteSkill):
+        super().__init__()
+        self.skill = skill
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="skill-description-dialog"):
+            yield Static(Text(self.skill.name, style="bold #e5e5e5"))
+            with VerticalScroll(id="skill-description-scroll"):
+                yield Static(Text(self.skill.description or "Skill này chưa có mô tả.", style="#a3a3a3"))
+            yield Static("↑ ↓ cuộn · Esc / i quay lại", classes="skill-hint")
+
+    def on_mount(self) -> None:
+        self.query_one(VerticalScroll).focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
 class SkillSelectScreen(ModalScreen[list[int] | None]):
     BINDINGS = [Binding("escape", "cancel", "Huỷ"),
-                Binding("enter", "submit", "Cài đã chọn", priority=True)]
+                Binding("enter", "submit", "Cài đã chọn", priority=True),
+                Binding("space", "toggle_skill", "Chọn", priority=True),
+                Binding("i", "description", "Mô tả", priority=True)]
 
     def __init__(self, skills: list[remote.RemoteSkill], home: Path):
         super().__init__()
         self.skills = skills
         self.home = home
+        self.selected: set[int] = set()
 
     def compose(self) -> ComposeResult:
-        with Vertical(id="dialog"):
-            yield Static("Install skills — chọn skill để thêm vào library")
-            yield SelectionList(*[
-                (Text(f"{s.name}{' (đã có)' if remote.exists(self.home, s.name) else ''} — {s.description}"), i)
-                for i, s in enumerate(self.skills)
-            ], id="remote-skills")
-            yield Static("↑ ↓ di chuyển · Space chọn/bỏ · Enter cài · Esc huỷ")
+        with Vertical(id="skill-select-dialog"):
+            yield Static(Text("Install skills", style="bold #e5e5e5"))
+            publisher = self.skills[0].publisher if self.skills else ""
+            yield Static(Text(f"Nhà phát hành: {publisher or 'other'}"), classes="skill-hint")
+            yield DataTable(id="remote-skills", cursor_type="row", show_row_labels=False,
+                            cursor_foreground_priority="renderable")
+            yield Static(id="skill-selection-count", classes="skill-hint")
+            yield Static("Space chọn/bỏ · i mô tả · Enter cài · Esc huỷ", classes="skill-hint")
 
     def on_mount(self) -> None:
-        self.query_one(SelectionList).focus()
+        self.call_after_refresh(self._populate_table)
+
+    def on_resize(self) -> None:
+        self.call_after_refresh(self._populate_table)
+
+    def _populate_table(self) -> None:
+        table = self.query_one("#remote-skills", DataTable)
+        cursor = table.cursor_row
+        table.clear(columns=True)
+        table.add_column("", key="check", width=3)
+        width = self.query_one("#skill-select-dialog").content_size.width
+        name_width = min(28, max(12, width // 3))
+        table.add_column("Skill", key="name", width=name_width)
+        table.add_column("Mô tả", key="description", width=max(8, width - name_width - 13))
+        for i, skill in enumerate(self.skills):
+            name = Text(skill.name, style="bold #d4d4d4")
+            if remote.exists(self.home, skill):
+                name.append(" (đã có)", style="#a3a3a3")
+            check = Text("[✓]", style="bold #e5e5e5") if i in self.selected else Text("[ ]", style="#737373")
+            table.add_row(check, name,
+                          Text(skill.description, style="#a3a3a3", no_wrap=True, overflow="ellipsis"),
+                          key=str(i), height=1)
+        self._update_count()
+        table.move_cursor(row=cursor)
+        table.focus()
+
+    def _update_count(self) -> None:
+        self.query_one("#skill-selection-count", Static).update(f"Đã chọn {len(self.selected)} / {len(self.skills)} skills")
+
+    def action_toggle_skill(self) -> None:
+        table = self.query_one("#remote-skills", DataTable)
+        index = table.cursor_row
+        if not 0 <= index < len(self.skills):
+            return
+        if index in self.selected:
+            self.selected.remove(index)
+        else:
+            self.selected.add(index)
+        table.update_cell(str(index), "check", Text("[✓]" if index in self.selected else "[ ]",
+                                                   style="bold #e5e5e5" if index in self.selected else "#737373"))
+        self._update_count()
+
+    def action_description(self) -> None:
+        index = self.query_one("#remote-skills", DataTable).cursor_row
+        if 0 <= index < len(self.skills):
+            self.app.push_screen(SkillDescriptionScreen(self.skills[index]))
 
     def action_submit(self) -> None:
-        selected = self.query_one(SelectionList).selected
-        if not selected:
+        if not self.selected:
             self.notify("Chọn ít nhất một skill bằng Space.", severity="warning")
             return
-        self.dismiss(sorted(selected))
+        self.dismiss(sorted(self.selected))
 
     def action_cancel(self) -> None:
         self.dismiss(None)
+
+
+class SyncSkillsScreen(ModalScreen[list[int] | None]):
+    BINDINGS = [Binding("escape", "cancel", "Đóng", priority=True),
+                Binding("enter", "submit", "Đồng bộ", priority=True),
+                Binding("space", "toggle", "Chọn/bỏ", priority=True)]
+
+    def __init__(self, skills: list[ExternalSkill], project: Path):
+        super().__init__()
+        self.skills = skills
+        self.project = project
+        self.selected = set(range(len(skills)))
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="sync-dialog"):
+            yield Static("Đồng bộ skills vào Agent Knowledge?", classes="sync-title")
+            yield Static(Text(f"Project: {_tilde(self.project)}"), classes="skill-hint")
+            yield Static("Thư mục gốc được chuyển vào library. Nếu là symlink, nguồn thật được giữ nguyên.", classes="skill-hint")
+            yield DataTable(id="sync-skills", cursor_type="row", cursor_foreground_priority="renderable")
+            yield Static(id="sync-count", classes="skill-hint")
+            yield Static("Space chọn/bỏ · Enter đồng bộ đã chọn · Esc đóng", classes="skill-hint")
+
+    def on_mount(self) -> None:
+        self.call_after_refresh(self._populate)
+
+    def _populate(self) -> None:
+        table = self.query_one(DataTable)
+        table.add_column("", key="check", width=3)
+        table.add_column("Skill", key="name", width=24)
+        width = self.query_one("#sync-dialog").content_size.width
+        table.add_column("Agent / đường dẫn", key="source", width=max(12, width - 38))
+        first = None
+        for scope, label in (("global", "Global skills"), ("project", "Project skills")):
+            indices = [i for i, skill in enumerate(self.skills) if skill.scope == scope]
+            table.add_row("", Text(f"{label} ({len(indices)})", style="bold #e5e5e5"),
+                          "" if indices else "Không có skill chưa quản lý", key=f"scope:{scope}")
+            for i in indices:
+                skill = self.skills[i]
+                if first is None:
+                    first = table.row_count
+                table.add_row(Text("[✓]", style="bold #e5e5e5"), Text(skill.name),
+                              Text(f"{', '.join(skill.agents or (skill.agent_id,))}: {_tilde(skill.path)}", style="#a3a3a3"), key=str(i))
+        self._count()
+        table.move_cursor(row=first or 0)
+        table.focus()
+
+    def _count(self) -> None:
+        self.query_one("#sync-count", Static).update(f"Đã chọn {len(self.selected)} / {len(self.skills)} skills")
+
+    def action_toggle(self) -> None:
+        table = self.query_one(DataTable)
+        if not table.row_count:
+            return
+        key = table.coordinate_to_cell_key(table.cursor_coordinate).row_key.value
+        if key is None or key.startswith("scope:"):
+            return
+        index = int(key)
+        self.selected.symmetric_difference_update({index})
+        table.update_cell(key, "check", Text("[✓]" if index in self.selected else "[ ]", style="#e5e5e5"))
+        self._count()
+
+    def action_submit(self) -> None:
+        self.dismiss(sorted(self.selected))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class SyncProgressScreen(ModalScreen[None]):
+    def compose(self) -> ComposeResult:
+        with Vertical(id="dialog"):
+            yield Static("Đang đồng bộ skills…", id="sync-progress")
 
 
 HELP = [
@@ -127,6 +277,7 @@ HELP = [
     ("u", "cập nhật item đang lệch (◐) theo library"),
     ("A / X", "cài / gỡ item cho TẤT CẢ agent"),
     ("m", "nhập item external (◌) vào library"),
+    ("d", "xoá skill khỏi library và gỡ khỏi các agent đã ghi nhận"),
     ("1 2 3  [ ]", "chuyển Skills / MCP / Instructions"),
     ("f", "lọc theo 1 agent (xem & quản lý riêng agent đó)"),
     ("o", "chỉ hiện item đã cài"),
@@ -174,6 +325,7 @@ class AgentKnowledgeApp(App):
         Binding("A", "install_all", "cài all", show=False),
         Binding("X", "uninstall_all", "gỡ all", show=False),
         Binding("m", "adopt", "nhập", show=True),
+        Binding("d", "remove_skill", "xoá skill"),
         Binding("f", "filter", "agent"),
         Binding("s", "scope", "scope"),
         Binding("o", "only", "đã cài"),
@@ -214,6 +366,7 @@ class AgentKnowledgeApp(App):
         self.query_one("#matrix", DataTable).focus()
         self._loaded = True
         self.rebuild()
+        self.run_worker(self._startup_sync(), name="startup-sync")
 
     def on_resize(self) -> None:
         if self._loaded:
@@ -232,6 +385,19 @@ class AgentKnowledgeApp(App):
         names = set(lib_items)
         for st in per.values():
             names |= set(st)
+        if kind == "skill":
+            external: dict[str, dict[str, State]] = {}
+            for aid, states in per.items():
+                for name, state in states.items():
+                    if state.status == "external":
+                        leaf = lib_items[name].skill_name if name in lib_items else name
+                        external.setdefault(leaf, {})[aid] = state
+            rows = [Row(kind, item.name, item, {aid: (State("absent") if states.get(item.name, State("absent")).status == "external"
+                        else states.get(item.name, State("absent"))) for aid, states in per.items()}) for item in lib_items.values()]
+            rows += [Row(kind, name, None, {aid: states.get(aid, State("absent")) for aid in per})
+                     for name, states in external.items()]
+            rows.sort(key=lambda r: (r.item is None, r.name.lower()))
+            return rows, per
         rows = [Row(kind, n, lib_items.get(n), {aid: st.get(n, State("absent")) for aid, st in per.items()})
                 for n in names]
         rows.sort(key=lambda r: (r.item is None, r.name.lower()))
@@ -251,7 +417,7 @@ class AgentKnowledgeApp(App):
         rk, ck = self._cursor_keys()
         if rk is None:
             return None
-        row = next((r for r in self.rows_data if r.name == rk), None)
+        row = next((r for r in self.rows_data if r.key == rk), None)
         if row is None:
             return None
         if ck in self.mgr.agents:
@@ -275,6 +441,9 @@ class AgentKnowledgeApp(App):
             aid = agents[0].id
             rows.sort(key=lambda r: ((r.states.get(aid) or State("absent")).status == "absent",
                                      r.item is None, r.name.lower()))
+        if self.cur_kind == "skill":
+            rows.sort(key=lambda r: (2, "") if r.item is None else
+                      ((0, r.item.publisher.casefold()) if r.item.publisher else (1, "")))
         self.rows_data = rows
 
         # độ rộng cột
@@ -302,19 +471,33 @@ class AgentKnowledgeApp(App):
             table.add_column("Trạng thái", key="status", width=status_w)
             self.col_keys.append("status")
 
+        row_keys = []
+        last_publisher = None
+        grouped = self.cur_kind == "skill"
         for r in rows:
-            name = Text(r.name, style="bold") if r.item else Text(r.name, style=f"italic {EXT}")
+            publisher = r.item.publisher if r.item else "@external"
+            if grouped and publisher != last_publisher:
+                divider = f"@publisher:{publisher}"
+                label = "External" if r.item is None else (publisher or "other")
+                table.add_row(Text(f"── {label}", style="bold #a3a3a3"),
+                              *[Text("─" * column.width, style="#333333")
+                                for column in list(table.columns.values())[1:]], key=divider)
+                row_keys.append(divider)
+                last_publisher = publisher
+            label = r.item.skill_name if r.item and self.cur_kind == "skill" else r.name
+            name = Text(label, style="bold") if r.item else Text(r.name, style=f"italic {EXT}")
             desc = Text(_clip(r.item.description, desc_w - 1), style=DIM) if r.item else \
                 Text("external — chưa có trong library", style=f"italic {DIM}")
             cells = [name, desc] + [self._cell(r.states.get(a.id)) for a in agents]
             if single:
                 st = r.states.get(agents[0].id)
                 cells.append(self._status_text(st))
-            table.add_row(*cells, key=r.name)
+            table.add_row(*cells, key=r.key)
+            row_keys.append(r.key)
 
         if table.row_count:
-            names = [r.name for r in rows]
-            ri = names.index(prev_row) if prev_row in names else 0
+            ri = row_keys.index(prev_row) if prev_row in row_keys else next(
+                (i for i, key in enumerate(row_keys) if not key.startswith("@publisher:")), 0)
             ci = self.col_keys.index(prev_col) if prev_col in self.col_keys else 2
             table.move_cursor(row=ri, column=min(ci, len(self.col_keys) - 1), animate=False)
 
@@ -434,6 +617,48 @@ class AgentKnowledgeApp(App):
         self.push_screen(ConfirmScreen(message), cb)
 
     # ------------------------------------------------------------ actions
+    async def _startup_sync(self) -> None:
+        self._remote_busy = True
+        try:
+            skills, errors = await self._remote_io(self.mgr.external_skills)
+            for error in errors:
+                self.notify(error, severity="warning", timeout=8)
+            if skills:
+                selected = await self.push_screen_wait(SyncSkillsScreen(skills, self.mgr.project))
+                if selected:
+                    await self._sync_candidates([skills[i] for i in selected])
+        finally:
+            self._remote_busy = False
+
+    async def _sync_candidates(self, skills: list[ExternalSkill]) -> None:
+        progress = SyncProgressScreen()
+        await self.push_screen(progress)
+        count = 0
+        errors = []
+        try:
+            for index, skill in enumerate(skills, 1):
+                progress.query_one("#sync-progress", Static).update(Text(f"Đồng bộ {index}/{len(skills)}: {skill.name}\n{skill.path}"))
+                try:
+                    result = await self._remote_io(self.mgr.adopt, skill.agent_id, skill.scope, "skill", skill.name)
+                except SkillConflict:
+                    if not await self.push_screen_wait(ConfirmScreen(
+                        f"Library đã có {skill.name} với nội dung khác.\nGhi đè bằng bản từ {skill.path}?\n"
+                        "Các agent đang liên kết tới bản trong library cũng nhận nội dung mới."
+                    )):
+                        continue
+                    result = await self._remote_io(self.mgr.adopt, skill.agent_id, skill.scope, "skill", skill.name, overwrite=True)
+                if result.ok:
+                    count += 1
+                else:
+                    errors.append(f"{skill.path}: {result.msg}")
+        finally:
+            self.pop_screen()
+            self.mgr.reload()
+            self.rebuild()
+        self.notify(f"Đã đồng bộ {count}/{len(skills)} skills.", timeout=5)
+        for error in errors:
+            self.notify(error, severity="error", timeout=10)
+
     def action_remote_install(self) -> None:
         if self._remote_busy:
             self.notify("Đang xử lý repository, vui lòng chờ.")
@@ -455,9 +680,9 @@ class AgentKnowledgeApp(App):
                 count = 0
                 for i in selected:
                     skill = skills[i]
-                    overwrite = remote.exists(self.mgr.home, skill.name)
+                    overwrite = remote.exists(self.mgr.home, skill)
                     if overwrite and not await self.push_screen_wait(ConfirmScreen(
-                        f"Ghi đè skill [{skill.name}] trong library?\nChỉnh sửa cũ sẽ mất; agent liên kết tới skill này cũng nhận bản mới."
+                        f"Ghi đè skill [{skill.reference}] trong library?\nChỉnh sửa cũ sẽ mất; agent liên kết tới skill này cũng nhận bản mới."
                     )):
                         continue
                     await self._remote_io(remote.install, self.mgr.home, skill, overwrite=overwrite)
@@ -494,7 +719,12 @@ class AgentKnowledgeApp(App):
         if st is None:
             return
         if st.status == "absent":
-            self._finish(self.mgr.install(aid, self.cur_scope, row.kind, row.name))
+            conflict = self.mgr.skill_conflict(aid, self.cur_scope, row.name) if row.kind == "skill" else None
+            if conflict:
+                self._confirm(f"{aid} đang dùng {conflict}.\nĐổi symlink sang {row.name}?", lambda:
+                              self._finish(self.mgr.install(aid, self.cur_scope, row.kind, row.name, replace=True)))
+            else:
+                self._finish(self.mgr.install(aid, self.cur_scope, row.kind, row.name))
             return
         if st.status == "external" and not st.removable:
             self.notify(st.detail or "Không thể gỡ item này từ đây.", severity="warning")
@@ -534,14 +764,23 @@ class AgentKnowledgeApp(App):
             self.notify("Chỉ cài được item có trong library.", severity="warning")
             return
         row = cur[0]
-        results = [self.mgr.install(a.id, self.cur_scope, row.kind, row.name)
-                   for a in self.mgr.agent_list()
+        targets = [a.id for a in self.mgr.agent_list()
                    if (row.states.get(a.id) or State("absent")).status in ("absent", "outdated")
                    and (row.states.get(a.id) or State("absent")).managed]
-        ok = sum(r.ok for r in results)
-        self.notify(f"Cài {row.name}: {ok}/{len(results)} agent thành công.",
-                    severity="information" if ok == len(results) else "warning")
-        self.rebuild()
+        conflicts = [f"{aid}: {conflict}" for aid in targets
+                     if row.kind == "skill" and (conflict := self.mgr.skill_conflict(aid, self.cur_scope, row.name))]
+
+        def do() -> None:
+            results = [self.mgr.install(aid, self.cur_scope, row.kind, row.name, replace=bool(conflicts)) for aid in targets]
+            ok = sum(r.ok for r in results)
+            self.notify(f"Cài {row.name}: {ok}/{len(results)} agent thành công.",
+                        severity="information" if ok == len(results) else "warning")
+            self.rebuild()
+
+        if conflicts:
+            self._confirm(f"Đổi các symlink sau sang {row.name}?\n" + "\n".join(conflicts), do)
+        else:
+            do()
 
     def action_uninstall_all(self) -> None:
         cur = self._current()
@@ -574,7 +813,29 @@ class AgentKnowledgeApp(App):
         if row.item is not None or st is None or st.status != "external":
             self.notify("Chỉ nhập được item external (◌) chưa có trong library.", severity="warning")
             return
-        self._finish(self.mgr.adopt(aid, self.cur_scope, row.kind, row.name))
+        if row.kind == "skill":
+            candidate = ExternalSkill(row.name, aid, self.cur_scope,
+                                      self.mgr.agents[aid].resolve("skills", self.cur_scope, self.mgr.project) / row.name)
+            self._confirm(f"Đồng bộ {row.name} vào library?\nThư mục gốc được chuyển; nếu là symlink, nguồn thật được giữ nguyên.", lambda:
+                          self.run_worker(self._sync_candidates([candidate]), name="import-skill"))
+        else:
+            self._finish(self.mgr.adopt(aid, self.cur_scope, row.kind, row.name))
+
+    def action_remove_skill(self) -> None:
+        cur = self._current()
+        if cur is None or cur[0].kind != "skill" or cur[0].item is None:
+            self.notify("Chọn một skill trong library để xoá.", severity="warning")
+            return
+        row = cur[0]
+        try:
+            paths = self.mgr.skill_dependents(row.name)
+        except (OSError, ValueError) as exc:
+            self.notify(str(exc), severity="error")
+            return
+        message = f"Xoá {row.name} khỏi library và gỡ {len(paths)} vị trí agent?\n"
+        message += "\n".join(_tilde(p) for p in paths)
+        message += "\nBản khôi phục được lưu trong library/.trash."
+        self._confirm(message, lambda: self._finish(self.mgr.remove_skill(row.name)))
 
     def action_filter(self) -> None:
         order: list[str | None] = [None] + [a.id for a in self.mgr.agent_list()]
@@ -616,6 +877,7 @@ class AgentKnowledgeApp(App):
                 self.notify(f"{value} không phải thư mục.", severity="error")
                 return
             self.mgr.project = p.resolve()
+            self.mgr.remember_skill_locations()
             self.rebuild()
         self.push_screen(PromptScreen("Thư mục project", str(self.mgr.project)), cb)
 

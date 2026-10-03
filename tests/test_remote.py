@@ -77,6 +77,7 @@ def test_download_root_skill(tmp_path, monkeypatch):
     monkeypatch.setattr(remote.subprocess, "run", clone)
     skills = remote.download("owner/my-skill", tmp_path / "repo")
     assert [s.name for s in skills] == ["my-skill"]
+    assert skills[0].publisher == "owner"
 
 
 def test_empty_repository(tmp_path):
@@ -120,6 +121,7 @@ def test_tui_install(repository, tmp_path, monkeypatch, answer, expected):
 
     async def run():
         async with app.run_test(size=(120, 40)) as pilot:
+            await app.workers.wait_for_complete()  # finish startup scan (no external skills)
             await pilot.press("i")
             await pilot.pause()
             app.screen.query_one(Input).value = "anthropics/skills"
@@ -144,5 +146,41 @@ def test_tui_install(repository, tmp_path, monkeypatch, answer, expected):
             await pilot.press("i", "escape")
             await pilot.pause()
             assert not app._remote_busy
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("size", [(120, 40), (65, 24)])
+def test_skill_description_and_checkbox_layout(tmp_path, monkeypatch, size):
+    from agent_knowledge.tui import AgentKnowledgeApp, SkillSelectScreen, SkillDescriptionScreen
+    from textual.widgets import DataTable
+    from textual.containers import VerticalScroll
+    monkeypatch.setenv("HOME", str(tmp_path / "user"))
+    description = "Mô tả dài cần đọc đầy đủ. " * 150
+    skills = [remote.RemoteSkill("long-description", tmp_path, description),
+              remote.RemoteSkill("second-skill", tmp_path, "Mô tả thứ hai")]
+    app = AgentKnowledgeApp(Manager(tmp_path / "library", tmp_path))
+
+    async def run():
+        async with app.run_test(size=size) as pilot:
+            screen = SkillSelectScreen(skills, app.mgr.home)
+            await app.push_screen(screen)
+            await pilot.pause()
+            table = screen.query_one("#remote-skills", DataTable)
+            assert table.columns[next(k for k in table.columns if k.value == "description")].width > 8
+            assert all(row.height == 1 for row in table.rows.values())
+            assert table.get_cell("0", "description").style == "#a3a3a3"
+            await pilot.press("space", "i")
+            await pilot.pause()
+            assert isinstance(app.screen, SkillDescriptionScreen)
+            assert app.screen.skill.description == description
+            assert app.screen.query_one(VerticalScroll).max_scroll_y > 0
+            await pilot.press("end", "escape")
+            assert app.screen is screen
+            assert screen.selected == {0}
+            assert table.get_cell("0", "check").plain == "[✓]"
+            await pilot.press("down", "space")
+            assert screen.selected == {0, 1}
+            await pilot.press("escape")
 
     asyncio.run(run())

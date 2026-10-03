@@ -74,11 +74,34 @@ def test_skill_name_clash_refused(env):
 
 def test_skill_copy_mode(env):
     m, home, _ = env
-    m.skill_mode = "copy"
-    assert m.install("pi", "global", "skill", "code-review").ok
+    # Legacy managed copies can still be removed or converted to a live symlink.
+    import shutil
     t = home / ".pi/agent/skills/code-review"
-    assert t.is_dir() and not t.is_symlink() and (t / ".agent-knowledge").exists()
+    source = m.lib.get("skill", "code-review").path
+    shutil.copytree(source, t)
+    (t / ".agent-knowledge").write_text(str(source))
+    assert m.install("pi", "global", "skill", "code-review").ok
+    assert t.is_symlink() and t.resolve() == source.resolve()
     assert m.uninstall("pi", "global", "skill", "code-review").ok and not t.exists()
+
+
+def test_symlink_failure_preserves_legacy_copy(env, monkeypatch):
+    import shutil
+    m, home, _ = env
+    source = m.lib.get("skill", "code-review").path
+    target = home / ".pi/agent/skills/code-review"
+    shutil.copytree(source, target)
+    (target / ".agent-knowledge").write_text(str(source))
+    (target / "SKILL.md").write_text("local edits")
+
+    def denied(*args, **kwargs):
+        raise PermissionError("symlinks unavailable")
+
+    monkeypatch.setattr(os, "symlink", denied)
+    result = m.install("pi", "global", "skill", "code-review")
+    assert not result.ok
+    assert not target.is_symlink()
+    assert (target / "SKILL.md").read_text() == "local edits"
 
 
 def test_instruction_block_roundtrip(env):
@@ -176,7 +199,7 @@ def test_tui_smoke(env):
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause()
             table = app.query_one("#matrix")
-            assert table.row_count == 3
+            assert table.row_count == 4  # 3 skills + divider Chưa phân nhóm
             # cursor bắt đầu ở cột agent đầu tiên (claude)
             await pilot.press("space")
             await pilot.pause()

@@ -17,6 +17,11 @@ class RemoteSkill:
     name: str
     path: Path
     description: str
+    publisher: str = ""
+
+    @property
+    def reference(self) -> str:
+        return f"{self.publisher}/{self.name}" if self.publisher else self.name
 
 
 def download(repository: str, destination: Path) -> list[RemoteSkill]:
@@ -35,10 +40,11 @@ def download(repository: str, destination: Path) -> list[RemoteSkill]:
         raise ValueError("Tải repository quá thời gian chờ (120 giây).") from exc
     except subprocess.CalledProcessError as exc:
         raise ValueError("Không tải được repository. Kiểm tra tên, quyền truy cập và kết nối GitHub.") from exc
-    return discover(destination, root_name=repository.split("/")[1])
+    owner, repo = repository.split("/")
+    return discover(destination, root_name=repo, publisher=owner.lower())
 
 
-def discover(root: Path, *, root_name: str | None = None) -> list[RemoteSkill]:
+def discover(root: Path, *, root_name: str | None = None, publisher: str = "") -> list[RemoteSkill]:
     found = []
     names = set()
     for directory, dirs, files in os.walk(root, followlinks=False):
@@ -55,29 +61,40 @@ def discover(root: Path, *, root_name: str | None = None) -> list[RemoteSkill]:
             raise ValueError(f"Repository có nhiều skill trùng tên: {name}")
         names.add(name.casefold())
         meta, _ = parse_frontmatter((path / "SKILL.md").read_text(encoding="utf-8", errors="replace"))
-        found.append(RemoteSkill(name, path, " ".join(meta.get("description", "").split())))
+        found.append(RemoteSkill(name, path, " ".join(meta.get("description", "").split()), publisher))
     if not found:
         raise ValueError("Repository không có skill chứa SKILL.md.")
     return sorted(found, key=lambda s: s.name.casefold())
 
 
-def exists(home: Path, name: str) -> bool:
+def exists(home: Path, skill: RemoteSkill | str) -> bool:
+    name = skill.reference if isinstance(skill, RemoteSkill) else skill
     return os.path.lexists(home / "skills" / name)
 
 
 def install(home: Path, skill: RemoteSkill, *, overwrite: bool = False) -> None:
     if not NAME_RE.fullmatch(skill.name):
         raise ValueError("Tên skill không hợp lệ.")
+    if skill.publisher and not NAME_RE.fullmatch(skill.publisher):
+        raise ValueError("Nhà phát hành không hợp lệ.")
     root = home / "skills"
+    if skill.publisher:
+        if (root / skill.publisher / "SKILL.md").is_file():
+            raise ValueError(f"Đường dẫn nhóm {skill.publisher} đang là một skill cũ; cần đổi tên trước.")
+        if (root / skill.publisher).is_symlink():
+            raise ValueError("Thư mục nhà phát hành không được là symlink.")
+        root /= skill.publisher
     root.mkdir(parents=True, exist_ok=True)
     target = root / skill.name
-    if exists(home, skill.name) and not overwrite:
+    if target.is_dir() and not (target / "SKILL.md").is_file():
+        raise ValueError(f"{target} đang là thư mục nhóm hoặc dữ liệu khác, không thể ghi đè bằng skill.")
+    if exists(home, skill) and not overwrite:
         raise FileExistsError(f"Skill {skill.name} đã tồn tại; cần xác nhận ghi đè.")
     # Stage on the same filesystem; restore the original if replacement fails.
     with tempfile.TemporaryDirectory(prefix=".install-", dir=root) as temp:
         stage, backup = Path(temp) / "new", Path(temp) / "old"
         shutil.copytree(skill.path, stage, ignore=shutil.ignore_patterns(".git"))
-        had_old = exists(home, skill.name)
+        had_old = exists(home, skill)
         if had_old:
             if not overwrite:
                 raise FileExistsError(f"Skill {skill.name} đã tồn tại.")

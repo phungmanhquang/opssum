@@ -122,7 +122,10 @@ Footer .footer-key--description {
 ConfirmScreen,
 PromptScreen,
 HelpScreen,
-SkillSelectScreen {
+SkillSelectScreen,
+SkillDescriptionScreen,
+SyncSkillsScreen,
+SyncProgressScreen {
     align: center middle;
 
     background: #000000 70%;
@@ -154,13 +157,71 @@ SkillSelectScreen {
     border: round #737373;
 }
 
+#confirm-message {
+    height: auto;
+    max-height: 12;
+    margin: 1 0;
+}
+
 /* ------------------------------------------------------------ remote skills */
 
 #remote-skills {
-    height: 14;
+    height: 1fr;
     margin: 1 0;
 
     background: #111111;
 
     border: round #292929;
+}
+
+#remote-skills > .datatable--cursor {
+    background: #262626;
+    text-style: none;
+}
+
+#skill-select-dialog, #skill-description-dialog {
+    width: 100;
+    max-width: 96%;
+    height: 26;
+    max-height: 90%;
+    padding: 1 2;
+    background: #171717;
+    border: round #737373;
+}
+
+#skill-description-scroll {
+    height: 1fr;
+    margin: 1 0;
+}
+
+.skill-hint {
+    color: #a3a3a3;
+    height: auto;
+}
+
+#sync-dialog {
+    width: 110;
+    max-width: 96%;
+    height: 30;
+    max-height: 90%;
+    padding: 1 2;
+    background: #171717;
+    border: round #737373;
+}
+
+#sync-skills {
+    height: 1fr;
+    margin: 1 0;
+    background: #111111;
+    border: round #292929;
+}
+
+#sync-skills > .datatable--cursor {
+    background: #262626;
+    text-style: none;
+}
+
+.sync-title {
+    text-style: bold;
+    color: #e5e5e5;
 }
