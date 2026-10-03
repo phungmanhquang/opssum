@@ -1,27 +1,120 @@
-#!/usr/bin/env bash
-# Cài agent-knowledge: ưu tiên pipx, rồi uv, cuối cùng venv riêng.
-set -euo pipefail
-cd "$(dirname "$0")"
+#!/bin/sh
+# Install/update the latest standalone Agent Knowledge binary (no Python needed).
+set -eu
 
-if command -v pipx >/dev/null 2>&1; then
-  # pipx chọn uv làm backend khi uv có sẵn. Với venv đã tồn tại, pipx
-  # --force vẫn gọi `uv venv`; uv cần được yêu cầu xóa venv cũ trước.
-  UV_VENV_CLEAR=1 pipx install --force .
-elif command -v uv >/dev/null 2>&1; then
-  uv tool install --force .
+say() { printf '[agent-knowledge] %s\n' "$*"; }
+fail() { printf '[agent-knowledge] Lỗi: %s\n' "$*" >&2; exit 1; }
+
+# Maintainer: replace OWNER/REPO before publishing this script.
+repo="${AGENT_KNOWLEDGE_REPO:-OWNER/REPO}"
+case "$repo" in
+  OWNER/REPO) fail "Chưa cấu hình GitHub owner/repo trong install.sh." ;;
+  */*) ;;
+  *) fail "GitHub repo phải có dạng owner/repo." ;;
+esac
+case "$repo" in
+  *[!A-Za-z0-9._/-]*|*/*/*|/*|*/|*..*) fail "GitHub owner/repo không hợp lệ: $repo" ;;
+esac
+
+command -v curl >/dev/null 2>&1 || fail "Cần curl để tải binary từ GitHub Releases."
+command -v mktemp >/dev/null 2>&1 || fail "Cần mktemp để tải an toàn."
+
+case "$(uname -s)" in
+  Linux) os=linux ;;
+  Darwin) os=macos ;;
+  *) fail "OS chưa hỗ trợ bởi install.sh; Windows hãy dùng install.ps1." ;;
+esac
+case "$(uname -m)" in
+  x86_64|amd64) arch=x64 ;;
+  aarch64|arm64) arch=arm64 ;;
+  *) fail "CPU chưa có binary phát hành: $(uname -m)." ;;
+esac
+
+asset="agent-knowledge-$os-$arch"
+base="https://github.com/$repo/releases/latest/download"
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-knowledge-install.XXXXXXXX")" || fail "Không tạo được thư mục tạm."
+trap 'if [ -n "${stage:-}" ] && [ -f "$stage" ]; then rm -f "$stage"; fi; rm -R "$temp_dir" 2>/dev/null || true' 0
+
+say "Đang tải $asset từ GitHub Releases mới nhất..."
+curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
+  "$base/$asset" -o "$temp_dir/$asset" || fail "Không tải được binary $asset. Kiểm tra repo/release và kết nối mạng."
+curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 \
+  "$base/$asset.sha256" -o "$temp_dir/$asset.sha256" || fail "Không tải được checksum của $asset."
+
+expected="$(awk -v name="$asset" '$2 == name {print $1; exit}' "$temp_dir/$asset.sha256")"
+case "$expected" in
+  ""|*[!0-9a-fA-F]*) fail "File SHA256 không hợp lệ cho $asset." ;;
+esac
+[ "${#expected}" -eq 64 ] || fail "File SHA256 không hợp lệ cho $asset."
+
+if command -v sha256sum >/dev/null 2>&1; then
+  actual="$(sha256sum "$temp_dir/$asset" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+  actual="$(shasum -a 256 "$temp_dir/$asset" | awk '{print $1}')"
+elif command -v openssl >/dev/null 2>&1; then
+  actual="$(openssl dgst -sha256 "$temp_dir/$asset" | awk '{print $NF}')"
 else
-  PY=${PYTHON:-python3}
-  "$PY" -c 'import sys; assert sys.version_info >= (3, 10), "cần Python >= 3.10"'
-  VENV="${AGENT_KNOWLEDGE_VENV:-$HOME/.local/share/agent-knowledge/venv}"
-  # --clear giúp script chạy lại được khi venv riêng đã tồn tại.
-  "$PY" -m venv --clear "$VENV"
-  "$VENV/bin/pip" install --upgrade pip >/dev/null
-  "$VENV/bin/pip" install --force-reinstall .
-  mkdir -p "$HOME/.local/bin"
-  ln -sf "$VENV/bin/agent-knowledge" "$HOME/.local/bin/agent-knowledge"
-  ln -sf "$VENV/bin/ak" "$HOME/.local/bin/ak"
-  echo "Đã link vào ~/.local/bin — đảm bảo thư mục này nằm trong PATH."
+  fail "Cần sha256sum, shasum hoặc openssl để xác minh binary."
+fi
+[ "$(printf '%s' "$actual" | tr 'A-F' 'a-f')" = "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ] || \
+  fail "SHA256 không khớp; bản cài hiện tại được giữ nguyên."
+
+chmod 755 "$temp_dir/$asset"
+"$temp_dir/$asset" --version >/dev/null || fail "Binary không chạy trên máy này; bản cài hiện tại được giữ nguyên."
+
+bin_dir="$HOME/.local/bin"
+[ ! -L "$bin_dir" ] || fail "$bin_dir là symlink; không tự ghi qua đường dẫn này."
+mkdir -p "$bin_dir"
+destination="$bin_dir/agent-knowledge"
+[ ! -d "$destination" ] || fail "$destination là thư mục, không thể ghi đè."
+
+if [ -f "$destination" ] && [ ! -L "$destination" ]; then
+  if command -v sha256sum >/dev/null 2>&1; then
+    installed="$(sha256sum "$destination" | awk '{print $1}')"
+  elif command -v shasum >/dev/null 2>&1; then
+    installed="$(shasum -a 256 "$destination" | awk '{print $1}')"
+  else
+    installed=""
+  fi
+else
+  installed=""
 fi
 
-echo
-echo "Xong. Chạy:  agent-knowledge init --examples   rồi   agent-knowledge"
+if [ -n "$installed" ] && [ "$installed" = "$actual" ]; then
+  say "$asset đã là bản mới nhất; không cần thay binary."
+else
+  stage="$bin_dir/.agent-knowledge-install.$$"
+  [ ! -e "$stage" ] || fail "File tạm đã tồn tại: $stage"
+  cp "$temp_dir/$asset" "$stage"
+  chmod 755 "$stage"
+  mv -f "$stage" "$destination" || fail "Không thể cập nhật $destination; bản cũ được giữ nguyên."
+  stage=
+  say "Đã cài/cập nhật: $destination"
+fi
+
+alias_path="$bin_dir/ak"
+if [ -L "$alias_path" ]; then
+  if [ "$(readlink "$alias_path")" = "agent-knowledge" ]; then
+    :
+  else
+    say "Giữ nguyên alias $alias_path vì đang trỏ tới nơi khác."
+  fi
+elif [ -e "$alias_path" ]; then
+  say "Giữ nguyên $alias_path vì đã tồn tại và không do installer tạo."
+else
+  ln -s agent-knowledge "$alias_path"
+fi
+
+case ":${PATH:-}:" in
+  *":$bin_dir:"*) ;;
+  *)
+    case "${SHELL:-}" in
+      */zsh) profile="$HOME/.zshrc" ;;
+      */bash) profile="$HOME/.bashrc" ;;
+      *) profile="$HOME/.profile" ;;
+    esac
+    say "$bin_dir chưa nằm trong PATH. Thêm dòng này vào $profile rồi mở terminal mới:"
+    printf '  export PATH="$HOME/.local/bin:$PATH"\n'
+    ;;
+esac
+say "Chạy: agent-knowledge init --examples  (lần đầu), sau đó agent-knowledge hoặc ak"

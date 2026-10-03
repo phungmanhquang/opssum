@@ -1,0 +1,117 @@
+name: Release standalone binaries
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate tag and tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Check tag matches pyproject.toml
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version']
+          expected = 'v' + version
+          if os.environ['RELEASE_TAG'] != expected:
+              raise SystemExit(f'Tag {os.environ["RELEASE_TAG"]} không khớp pyproject.toml: {expected}')
+          print(f'Validated {expected}')
+          PY
+      - name: Install and test
+        run: |
+          python -m pip install . 'pytest>=8'
+          python -m pytest -q
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - target: linux-x64
+            runner: ubuntu-22.04
+            architecture: x64
+          - target: linux-arm64
+            runner: ubuntu-22.04-arm
+            architecture: arm64
+          - target: macos-x64
+            runner: macos-15-intel
+            architecture: x64
+          - target: macos-arm64
+            runner: macos-15
+            architecture: arm64
+          - target: windows-x64
+            runner: windows-2022
+            architecture: x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.architecture }}
+      - name: Install application and PyInstaller
+        run: python -m pip install '.[build]'
+      - name: Build native one-file binary
+        run: python -m PyInstaller --clean --noconfirm agent-knowledge.spec
+      - name: Smoke-test binary and create checksum
+        run: python scripts/package_release.py ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: dist/release-assets/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: release-assets
+          merge-multiple: true
+      - name: Verify all five binaries and SHA256 checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release-assets
+          test "$(find . -maxdepth 1 -name '*.sha256' -type f | wc -l)" -eq 5
+          sha256sum -c ./*.sha256
+          test "$(find . -maxdepth 1 -type f | wc -l)" -eq 10
+      - name: Create release with binaries and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" release-assets/* install.sh install.ps1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$RELEASE_TAG" \
+            --generate-notes

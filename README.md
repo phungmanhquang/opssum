@@ -33,20 +33,77 @@ TUI quản lý **skills**, **MCP servers** và **instructions (AGENT file)** cho
 
 ---
 
-## 1. Cài đặt
+## 1. Installation (Cài đặt)
 
-Yêu cầu: **Python ≥ 3.10**, terminal hỗ trợ màu 256/truecolor và Unicode (Windows Terminal, iTerm2, Ghostty, Kitty, GNOME Terminal… đều ổn).
+Người dùng bản **standalone binary không cần cài Python**. Terminal cần hỗ trợ màu 256/truecolor và Unicode (Windows Terminal, iTerm2, Ghostty, Kitty, GNOME Terminal… đều ổn).
 
-### Cách nhanh (macOS / Linux / WSL)
+### Cài nhanh Linux/macOS
 
-```bash
-unzip agent-knowledge-tui.zip && cd agent-knowledge-tui
-./install.sh
+```sh
+curl -fsSL https://github.com/OWNER/REPO/releases/latest/download/install.sh | sh
 ```
 
-Script ưu tiên `pipx`, rồi `uv tool`, cuối cùng tạo venv riêng + symlink vào `~/.local/bin`.
+Thay `OWNER/REPO` bằng repo GitHub công khai trước khi dùng hoặc phát hành tài liệu.
+Người phát hành cũng cần thay placeholder `OWNER/REPO` trong `install.sh` và
+`install.ps1`. Workflow upload hai installer cùng binary lên mỗi GitHub Release;
+lệnh này hoạt động sau khi có release đầu tiên.
+Installer tự nhận Linux/macOS và x64/ARM64, tải binary mới nhất cùng SHA256 từ
+GitHub Releases, xác minh rồi cài vào `~/.local/bin/agent-knowledge` (alias `ak`).
+Nếu `~/.local/bin` chưa có trong PATH, installer sẽ in dòng cần thêm vào shell profile.
+Mở terminal mới sau khi cập nhật PATH.
 
-### Cài thủ công
+```sh
+agent-knowledge init --examples   # lần đầu, nếu muốn dữ liệu mẫu
+agent-knowledge                   # mở TUI; có thể dùng ak
+```
+
+Để **cập nhật**, chạy lại đúng lệnh `curl ... | sh` ở trên. Installer chỉ thay binary
+sau khi tải, kiểm SHA256 và thử chạy `--version` thành công; không xóa library
+`~/.agent-knowledge`.
+
+Để **gỡ cài đặt** trên Linux/macOS:
+
+```sh
+rm "$HOME/.local/bin/agent-knowledge"
+if [ "$(readlink "$HOME/.local/bin/ak" 2>/dev/null)" = agent-knowledge ]; then
+  rm "$HOME/.local/bin/ak"
+fi
+```
+
+Không xóa `~/.agent-knowledge` nếu muốn giữ skills/MCP đã lưu. Có thể bỏ dòng PATH
+khỏi shell profile nếu `~/.local/bin` không còn dùng cho công cụ nào khác.
+
+### Windows PowerShell
+
+```powershell
+irm https://github.com/OWNER/REPO/releases/latest/download/install.ps1 | iex
+```
+
+Thay `OWNER/REPO` như trên. Chạy lại lệnh để cập nhật. Installer hỗ trợ Windows
+x64, kiểm SHA256, lưu `agent-knowledge.exe` và alias `ak.cmd` vào
+`$HOME\.local\bin`, tự thêm thư mục này vào User PATH; mở PowerShell mới rồi chạy
+`agent-knowledge` hoặc `ak`. Để gỡ, xóa hai file này (chỉ xóa `ak.cmd` nếu do
+installer tạo); library vẫn được giữ:
+
+```powershell
+Remove-Item "$HOME\.local\bin\agent-knowledge.exe"
+$alias = "$HOME\.local\bin\ak.cmd"
+if ((Test-Path $alias) -and ((Get-Content $alias -Raw) -eq "@echo off`r`n`"%~dp0agent-knowledge.exe`" %*`r`n")) {
+    Remove-Item $alias
+}
+```
+
+### Binary từ GitHub Releases (không cần Python)
+
+Chọn file đúng OS/CPU trong GitHub Releases: `agent-knowledge-linux-x64`,
+`agent-knowledge-linux-arm64`, `agent-knowledge-macos-x64`,
+`agent-knowledge-macos-arm64` hoặc `agent-knowledge-windows-x64.exe`.
+Tải kèm file `.sha256` tương ứng để kiểm tra checksum. Trên Linux/macOS,
+chạy `chmod +x agent-knowledge-<os>-<arch>` sau khi tải file thô, rồi chạy trực tiếp.
+Windows chạy file `.exe`. Các binary đã chứa Python runtime và dependencies;
+chúng vẫn cần terminal và những agent CLI/MCP package mà bạn muốn sử dụng.
+
+### Cài từ source (cần Python)
 
 ```bash
 # pipx (khuyến nghị)
@@ -68,6 +125,26 @@ PYTHONPATH=src python -m agent_knowledge
 ```
 
 Sau khi cài sẽ có 2 lệnh tương đương: `agent-knowledge` và `ak`.
+
+### Phát hành phiên bản mới
+
+Máy phát hành cần `git`, `python3`, quyền push lên GitHub và remote `origin`
+trỏ tới GitHub. Commit toàn bộ thay đổi code/workflow trước, bảo đảm working tree sạch,
+sau đó chạy:
+
+```bash
+./release.sh                    # chọn patch / minor / major khi được hỏi
+./release.sh patch              # hoặc chọn trực tiếp
+```
+
+Script tăng `[project].version` trong `pyproject.toml`, commit, tạo annotated tag
+`vX.Y.Z`, rồi push commit + tag theo một lệnh atomic. Nếu push lỗi, chạy lại
+`./release.sh` để tiếp tục tag/commit đã tạo; chạy lại sau khi push thành công
+không tạo release trùng. Tag kích hoạt [workflow release](.github/workflows/release.yml):
+chạy test, build PyInstaller one-file trên 5 runner native, smoke-test từng binary,
+tạo SHA256 và chỉ publish GitHub Release khi cả 5 bản thành công.
+Workflow dùng `GITHUB_TOKEN` với quyền `contents: write`, không lưu token trong source.
+Installer tải bản standalone, còn `pipx`/`uv` ở trên là lựa chọn cài từ source.
 
 ## 2. Bắt đầu nhanh
 

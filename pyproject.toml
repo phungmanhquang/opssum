@@ -13,6 +13,7 @@ dependencies = ["textual>=0.86"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+build = ["pyinstaller==6.22.3"]
 
 [project.scripts]
 agent-knowledge = "agent_knowledge.cli:entry"
