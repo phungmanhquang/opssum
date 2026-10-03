@@ -15,12 +15,14 @@ import os
 import re
 import shutil
 import tempfile
+from uuid import uuid4
 from dataclasses import dataclass
 from pathlib import Path
 
 from .agents import AgentSpec, load_agents
 from .catalog import Item, Library, NAME_RE, normalize_mcp
 from .skill_storage import remember_locations, linked_paths, remove_from_library
+from .mcp_storage import bindings as mcp_bindings, record as record_mcp, forget as forget_mcp, _write as write_mcp_bindings
 
 MARKER = ".agent-knowledge"          # file đánh dấu skill được cài bằng copy
 BACKUP_SUFFIX = ".agent-knowledge.bak"
@@ -48,8 +50,21 @@ class SkillConflict(OpsError):
     """The caller must obtain overwrite confirmation before retrying."""
 
 
+class McpConflict(OpsError):
+    """Existing library MCP differs from the external source."""
+
+
 @dataclass(frozen=True)
 class ExternalSkill:
+    name: str
+    agent_id: str
+    scope: str
+    path: Path
+    agents: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ExternalMcp:
     name: str
     agent_id: str
     scope: str
@@ -408,103 +423,137 @@ def _json_servers(data: dict, path: Path) -> dict:
     return s
 
 
-def mcp_states(spec: AgentSpec, scope, project, lib) -> dict[str, State]:
+def mcp_states(spec: AgentSpec, scope, project, lib, home: Path | None = None) -> dict[str, State]:
     f = spec.resolve("mcp", scope, project)
     items = {i.name: i for i in lib.items("mcp")}
     out: dict[str, State] = {}
     if f is None:
         return {n: State("absent") for n in items}
+    owned = mcp_bindings(home).get(str(f.resolve()), {}) if home else {}
     if spec.mcp_format == "toml":
         text = _read_text(f)
         managed = {m.group("name"): m.group("body") for m in _TBLOCK.finditer(text)}
         rest = _TBLOCK.sub("", text)
         ext = {m.group(1).strip('"') for m in _TTABLE.finditer(rest)}
         for n, it in items.items():
-            if n in managed:
+            leaf = it.server_name
+            if leaf in managed and (not owned.get(leaf) or owned[leaf] == n):
                 try:
-                    same = managed[n] == render_toml(n, it.spec)
+                    same = managed[leaf] == render_toml(leaf, it.spec)
                 except OpsError:
                     same = False
                 out[n] = State("installed") if same else State("outdated", True, True, "khác library")
-            elif n in ext:
+            elif leaf in ext:
                 out[n] = State("external", False, False, "đã có server cùng tên trong config.toml (tự khai báo)")
             else:
-                out[n] = State("absent")
-        for n in managed.keys() - items.keys():
+                out[n] = State("absent", detail="agent đang dùng MCP cùng tên từ nhà phát hành khác" if leaf in managed else "")
+        leaves = {i.server_name for i in items.values()}
+        for n in managed.keys() - leaves:
             out[n] = State("external", True, True, "orphan: không còn trong library")
-        for n in ext - items.keys():
+        for n in ext - leaves:
             out[n] = State("external", False, False, "khai báo tay trong config.toml (sửa bằng tay)")
         return out
     servers = _json_servers(_json_load(f), f)
     for n, it in items.items():
-        if n in servers:
-            if servers[n] == render_json(spec.mcp_style, it.spec):
-                out[n] = State("installed")
+        leaf = it.server_name
+        if leaf in servers:
+            if owned.get(leaf) and owned[leaf] != n:
+                out[n] = State("absent", detail="agent đang dùng MCP cùng tên từ nhà phát hành khác")
+            elif servers[leaf] == render_json(spec.mcp_style, it.spec):
+                out[n] = (State("installed") if owned.get(leaf) == n or not home else
+                          State("external", False, False, "cấu hình tự khai báo; chưa đồng bộ vào library"))
             else:
-                out[n] = State("outdated", False, True, "khác library (có thể bạn đã sửa tay)")
+                out[n] = State("outdated" if owned.get(leaf) == n else "external", False, False,
+                               "khác library (có thể bạn đã sửa tay)")
         else:
             out[n] = State("absent")
-    for n in servers.keys() - items.keys():
-        out[n] = State("external", False, True, "server tự khai báo, chưa có trong library")
+    leaves = {i.server_name for i in items.values()}
+    for n in servers.keys() - leaves:
+        out[n] = State("external", False, False, "server tự khai báo, chưa có trong library")
     return out
 
 
-def mcp_install(spec, scope, project, lib, item: Item) -> Result:
+def mcp_install(spec, scope, project, lib, item: Item, *, replace: bool = False, home: Path | None = None) -> Result:
     f = spec.resolve("mcp", scope, project)
     if f is None:
         return Result(False, f"{spec.label} không hỗ trợ MCP ở scope {scope}")
     if spec.mcp_format == "toml":
         text = _read_text(f)
-        body = render_toml(item.name, item.spec)
+        leaf = item.server_name
+        body = render_toml(leaf, item.spec)
         names = {m.group("name") for m in _TBLOCK.finditer(text)}
-        if item.name in names:
-            text = _TBLOCK.sub(lambda m: _tblock(item.name, body) if m.group("name") == item.name else m.group(0), text)
+        owned = mcp_bindings(home).get(str(f.resolve()), {}) if home else {}
+        if leaf in names:
+            if owned.get(leaf) not in (None, item.name) and not replace:
+                return Result(False, f"{leaf} đang dùng bản {owned[leaf]}; cần xác nhận thay thế")
+            current_block = next(m.group("body") for m in _TBLOCK.finditer(text) if m.group("name") == leaf)
+            if current_block != body and not replace:
+                return Result(False, f"{leaf} trong {f} khác library; cần xác nhận ghi đè")
+            text = _TBLOCK.sub(lambda m: _tblock(leaf, body) if m.group("name") == leaf else m.group(0), text)
         else:
             rest = _TBLOCK.sub("", text)
-            if any(m.group(1).strip('"') == item.name for m in _TTABLE.finditer(rest)):
-                return Result(False, f"{f} đã có [mcp_servers.{item.name}] tự khai báo — không ghi đè")
+            if any(m.group(1).strip('"') == leaf for m in _TTABLE.finditer(rest)):
+                return Result(False, f"{f} đã có [mcp_servers.{leaf}] tự khai báo — không ghi đè")
             if text and not text.endswith("\n"):
                 text += "\n"
             if text.strip():
                 text += "\n"
-            text += _tblock(item.name, body)
+            text += _tblock(leaf, body)
         atomic_write(f, text)
+        if home:
+            record_mcp(home, f, leaf, item.name)
         return Result(True, f"Đã cài MCP {item.name} → {f}")
     data = _json_load(f)
     servers = _json_servers(data, f)
-    servers[item.name] = render_json(spec.mcp_style, item.spec)
+    leaf = item.server_name
+    current = mcp_bindings(home).get(str(f.resolve()), {}).get(leaf) if home else None
+    if leaf in servers and servers[leaf] != render_json(spec.mcp_style, item.spec) and not replace:
+        return Result(False, f"{f} đã có MCP {leaf}; cần xác nhận ghi đè")
+    if current and current != item.name and not replace:
+        return Result(False, f"{leaf} đang dùng bản {current}; cần xác nhận thay thế")
+    servers[leaf] = render_json(spec.mcp_style, item.spec)
     data["mcpServers"] = servers
     atomic_write(f, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    if home:
+        record_mcp(home, f, leaf, item.name)
     extra = " (cần extension pi-mcp-adapter)" if spec.id == "pi" else ""
     return Result(True, f"Đã cài MCP {item.name} → {f}{extra}")
 
 
-def mcp_uninstall(spec, scope, project, lib, name: str) -> Result:
+def mcp_uninstall(spec, scope, project, lib, name: str, home: Path | None = None) -> Result:
     f = spec.resolve("mcp", scope, project)
     if f is None or not f.exists():
         return Result(True, f"{name} chưa được cài cho {spec.label}")
+    item = lib.get("mcp", name)
+    leaf = item.server_name if item else name
+    if home and mcp_bindings(home).get(str(f.resolve()), {}).get(leaf) not in (None, name):
+        return Result(False, f"{leaf} đang thuộc một MCP khác; không gỡ")
     if spec.mcp_format == "toml":
         text = _read_text(f)
-        new = _TBLOCK.sub(lambda m: "" if m.group("name") == name else m.group(0), text)
+        new = _TBLOCK.sub(lambda m: "" if m.group("name") == leaf else m.group(0), text)
         if new == text:
             return Result(False, f"{name} khai báo tay trong {f} — hãy sửa bằng tay")
         atomic_write(f, re.sub(r"\n{3,}", "\n\n", new).lstrip("\n"))
+        if home:
+            forget_mcp(home, f, leaf)
         return Result(True, f"Đã gỡ MCP {name} khỏi {f}")
     data = _json_load(f)
     servers = _json_servers(data, f)
-    if name not in servers:
+    if leaf not in servers:
         return Result(True, f"{name} chưa được cài cho {spec.label}")
-    del servers[name]
+    if home and mcp_bindings(home).get(str(f.resolve()), {}).get(leaf) != name:
+        return Result(False, f"{leaf} không do agent-knowledge quản lý; dùng đồng bộ trước")
+    del servers[leaf]
     data["mcpServers"] = servers
     atomic_write(f, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    if home:
+        forget_mcp(home, f, leaf)
     return Result(True, f"Đã gỡ MCP {name} khỏi {f}")
 
 
-def mcp_adopt(spec, scope, project, lib, name: str) -> Result:
+def mcp_adopt(spec, scope, project, lib, name: str, home: Path | None = None, *, overwrite: bool = False) -> Result:
     f = spec.resolve("mcp", scope, project)
     dst = lib.dir_for("mcp") / f"{name}.json"
-    if dst.exists():
-        return Result(False, f"library đã có mcp/{name}.json")
     if spec.mcp_format == "toml":
         try:
             import tomllib                    # Python >= 3.11
@@ -524,11 +573,46 @@ def mcp_adopt(spec, scope, project, lib, name: str) -> Result:
         norm, _ = normalize_mcp(raw)
     except ValueError as e:
         return Result(False, f"không nhập được: {e}")
+    if dst.exists():
+        existing = lib.get("mcp", name)
+        if existing is None or existing.spec != norm:
+            if not overwrite:
+                raise McpConflict(f"Library đã có MCP {name} với cấu hình khác.")
     out = {"description": "", **{k: v for k, v in norm.items() if v not in ({}, [])}}
     if out.get("transport") == "http":
         out.pop("transport")
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    dst.write_text(json.dumps(out, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if not dst.exists() or overwrite:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write(dst, json.dumps(out, indent=2, ensure_ascii=False) + "\n")
+        dst.chmod(0o600)
+    if spec.mcp_format == "toml":
+        text = _read_text(f)
+        # Preserve unrelated sections verbatim. Only replace tables belonging to this server.
+        lines = text.splitlines(keepends=True)
+        header = re.compile(r'^\s*\[([^]]+)\]\s*$')
+        sections = []
+        for index, line in enumerate(lines):
+            match = header.match(line)
+            if match:
+                sections.append((index, match.group(1).strip('"')))
+        remove = set()
+        for index, (start, section) in enumerate(sections):
+            if section == f"mcp_servers.{name}" or section.startswith(f"mcp_servers.{name}."):
+                end = sections[index + 1][0] if index + 1 < len(sections) else len(lines)
+                remove.update(range(start, end))
+        new = "".join(line for index, line in enumerate(lines) if index not in remove)
+        if new and not new.endswith("\n"):
+            new += "\n"
+        if new.strip():
+            new += "\n"
+        new += _tblock(name, render_toml(name, norm))
+        atomic_write(f, new)
+    else:
+        data = _json_load(f)
+        data["mcpServers"][name] = render_json(spec.mcp_style, norm)
+        atomic_write(f, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    if home:
+        record_mcp(home, f, name, name)
     return Result(True, f"Đã nhập MCP {name} vào library (mcp/{name}.json) — nhớ kiểm tra secrets/env")
 
 
@@ -544,6 +628,7 @@ class Manager:
         self.lib = Library(self.home)
         self.errors: dict[tuple[str, str, str], str] = {}
         self.remember_skill_locations()
+        self.remember_mcp_locations()
 
     def skill_locations(self) -> list[Path]:
         return [p for spec in self.agent_list() for scope in ("global", "project")
@@ -574,6 +659,36 @@ class Manager:
                     errors.append(f"{directory}: {exc}")
         return list(found.values()), errors
 
+    def external_mcps(self) -> tuple[list[ExternalMcp], list[str]]:
+        found: dict[tuple[str, Path, str], ExternalMcp] = {}
+        errors = []
+        try:
+            owned = mcp_bindings(self.home)
+        except (ValueError, OSError) as exc:
+            return [], [str(exc)]
+        for scope in ("global", "project"):
+            for spec in self.agent_list():
+                path = spec.resolve("mcp", scope, self.project)
+                if path is None or not path.is_file():
+                    continue
+                try:
+                    if spec.mcp_format == "toml":
+                        rest = _TBLOCK.sub("", _read_text(path))
+                        names = {m.group(1).strip('"') for m in _TTABLE.finditer(rest)}
+                    else:
+                        names = set(_json_servers(_json_load(path), path))
+                    for name in sorted(names):
+                        if not NAME_RE.fullmatch(name) or name in owned.get(str(path.resolve()), {}):
+                            continue
+                        key = (scope, path.resolve(), name)
+                        previous = found.get(key)
+                        agents = (*previous.agents, spec.id) if previous else (spec.id,)
+                        found[key] = ExternalMcp(name, previous.agent_id if previous else spec.id,
+                                                 scope, path, agents)
+                except (OSError, OpsError) as exc:
+                    errors.append(str(exc))
+        return list(found.values()), errors
+
     def remember_skill_locations(self) -> None:
         # Opening an older project records its existing library links.
         try:
@@ -583,6 +698,33 @@ class Manager:
                 remember_locations(self.home, locations)
         except (ValueError, OSError) as exc:
             self.lib.errors.append(f"Không ghi nhận được đường dẫn skills: {exc}")
+
+    def remember_mcp_locations(self) -> None:
+        # Legacy TOML blocks have an explicit marker, so they can be attributed
+        # when a previously used project is opened. JSON has no marker and must
+        # be offered for explicit sync instead of being claimed automatically.
+        try:
+            seen: set[Path] = set()
+            for scope in ("global", "project"):
+                for agent in self.agent_list():
+                    path = agent.resolve("mcp", scope, self.project)
+                    if path is None or agent.mcp_format != "toml" or path in seen or not path.is_file():
+                        continue
+                    seen.add(path)
+                    for block in _TBLOCK.finditer(_read_text(path)):
+                        matching = []
+                        for item in self.lib.items("mcp"):
+                            if item.server_name != block.group("name"):
+                                continue
+                            try:
+                                if render_toml(item.server_name, item.spec) == block.group("body"):
+                                    matching.append(item)
+                            except OpsError:
+                                continue
+                        if len(matching) == 1:
+                            record_mcp(self.home, path, block.group("name"), matching[0].name)
+        except (OSError, ValueError, OpsError) as exc:
+            self.lib.errors.append(f"Không ghi nhận được đường dẫn MCP: {exc}")
 
     def skill_conflict(self, agent_id: str, scope: str, name: str) -> str | None:
         item = self.lib.get("skill", name)
@@ -611,11 +753,133 @@ class Manager:
         except (OSError, ValueError) as exc:
             return Result(False, str(exc))
 
+    def save_mcp(self, reference: str, definition: dict, *, overwrite: bool = False) -> Result:
+        parts = reference.split("/")
+        if len(parts) not in (1, 2) or any(not NAME_RE.fullmatch(part) for part in parts):
+            return Result(False, "Tên MCP phải là name hoặc publisher/name hợp lệ.")
+        existing = self.lib.get("mcp", reference)
+        path = existing.path if existing is not None else self.lib.dir_for("mcp").joinpath(*parts[:-1], parts[-1] + ".json")
+        if path.exists() and not overwrite:
+            return Result(False, f"Library đã có {reference}; cần xác nhận ghi đè.")
+        try:
+            spec, description = normalize_mcp(definition)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.is_symlink() or path.parent.is_symlink():
+                raise OpsError("Không ghi cấu hình MCP qua symlink trong library.")
+            payload = {"description": description, **spec}
+            if existing and path != self.lib.dir_for("mcp").joinpath(*parts[:-1], parts[-1] + ".json"):
+                original = _json_load(path)
+                if isinstance(original.get("mcpServers"), dict):
+                    original["mcpServers"][existing.server_name] = payload
+                    payload = original
+            atomic_write(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
+            path.chmod(0o600)
+            self.lib.load()
+            return Result(True, f"Đã lưu MCP {reference} vào library.")
+        except (OSError, ValueError, OpsError) as exc:
+            return Result(False, str(exc))
+
+    def mcp_dependents(self, name: str) -> list[tuple[Path, str]]:
+        if self.lib.get("mcp", name) is None:
+            raise OpsError(f"Library không có MCP {name}")
+        entries = mcp_bindings(self.home)
+        return sorted((Path(path), server) for path, names in entries.items()
+                      for server, reference in names.items() if reference == name)
+
+    def remove_mcp(self, name: str) -> Result:
+        item = self.lib.get("mcp", name)
+        if item is None or item.path is None:
+            return Result(False, f"Library không có MCP {name}")
+        try:
+            dependents = self.mcp_dependents(name)
+            root = self.lib.dir_for("mcp").resolve()
+            source = item.path.absolute()
+            source.relative_to(root)
+            source.resolve().relative_to(root)
+            if source.is_symlink() or source.suffix != ".json":
+                raise OpsError("File MCP trong library không hợp lệ.")
+            # Validate all locations before touching any config.
+            for path, server in dependents:
+                if not path.exists():
+                    continue
+                if path.suffix == ".toml":
+                    if server not in {m.group("name") for m in _TBLOCK.finditer(_read_text(path))}:
+                        raise OpsError(f"MCP đã thay đổi tại {path}; hãy tải lại và kiểm tra.")
+                elif server not in _json_servers(_json_load(path), path):
+                    raise OpsError(f"MCP đã thay đổi tại {path}; hãy tải lại và kiểm tra.")
+            trash = self.home / ".trash" / uuid4().hex
+            trash.mkdir(parents=True)
+            (trash / "manifest.json").write_text(json.dumps({"source": str(source),
+                "configs": [str(path) for path, _ in dependents]}, ensure_ascii=False, indent=2), encoding="utf-8")
+            previous_bindings = mcp_bindings(self.home)
+            updated_bindings = json.loads(json.dumps(previous_bindings))
+            changed: list[tuple[Path, Path]] = []
+            source_changed = False
+            try:
+                for index, (path, server) in enumerate(dependents):
+                    key = str(path.resolve())
+                    updated_bindings.get(key, {}).pop(server, None)
+                    if key in updated_bindings and not updated_bindings[key]:
+                        del updated_bindings[key]
+                    if not path.exists():
+                        continue
+                    backup = trash / f"config-{index}{path.suffix}"
+                    shutil.copy2(path, backup)
+                    if path.suffix == ".toml":
+                        text = _read_text(path)
+                        new = _TBLOCK.sub(lambda m: "" if m.group("name") == server else m.group(0), text)
+                        atomic_write(path, re.sub(r"\n{3,}", "\n\n", new).lstrip("\n"))
+                    else:
+                        data = _json_load(path)
+                        del data["mcpServers"][server]
+                        atomic_write(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+                    changed.append((path, backup))
+                raw_source = _json_load(source)
+                if isinstance(raw_source.get("mcpServers"), dict) and len(raw_source["mcpServers"]) > 1:
+                    shutil.copy2(source, trash / "mcp.json")
+                    del raw_source["mcpServers"][item.server_name]
+                    atomic_write(source, json.dumps(raw_source, indent=2, ensure_ascii=False) + "\n")
+                else:
+                    source.rename(trash / "mcp.json")
+                source_changed = True
+                write_mcp_bindings(self.home, updated_bindings)
+            except (OSError, ValueError):
+                if source_changed:
+                    shutil.copy2(trash / "mcp.json", source)
+                for path, backup in reversed(changed):
+                    shutil.copy2(backup, path)
+                write_mcp_bindings(self.home, previous_bindings)
+                raise
+            self.lib.load()
+            return Result(True, f"Đã xoá MCP {name} và gỡ {len(dependents)} vị trí. Bản khôi phục: {trash}")
+        except (OSError, ValueError, OpsError) as exc:
+            return Result(False, str(exc))
+
+    def mcp_conflict(self, agent_id: str, scope: str, name: str) -> str | None:
+        item = self.lib.get("mcp", name)
+        if item is None:
+            return None
+        spec = self.agents[agent_id]
+        path = spec.resolve("mcp", scope, self.project)
+        if path is None:
+            return None
+        leaf = item.server_name
+        if spec.mcp_format == "toml":
+            text = _read_text(path)
+            if leaf not in {m.group("name") for m in _TBLOCK.finditer(text)}:
+                return None
+        else:
+            if leaf not in _json_servers(_json_load(path), path):
+                return None
+        owner = mcp_bindings(self.home).get(str(path.resolve()), {}).get(leaf)
+        return owner if owner and owner != name else ("bản tự khai báo" if owner is None and spec.mcp_format != "toml" else None)
+
     def reload(self) -> None:
         self.agents = load_agents(self.home)
         self.lib.load()
         self.errors.clear()
         self.remember_skill_locations()
+        self.remember_mcp_locations()
 
     def agent_list(self) -> list[AgentSpec]:
         return list(self.agents.values())
@@ -629,7 +893,7 @@ class Manager:
                 return skill_states(spec, scope, self.project, self.lib)
             if kind == "instruction":
                 return instr_states(spec, scope, self.project, self.lib)
-            return mcp_states(spec, scope, self.project, self.lib)
+            return mcp_states(spec, scope, self.project, self.lib, self.home)
         except OpsError as e:
             self.errors[(agent_id, scope, kind)] = str(e)
         except OSError as e:
@@ -666,7 +930,7 @@ class Manager:
                 return skill_install(spec, scope, self.project, self.lib, item, self.skill_mode, replace)
             if kind == "instruction":
                 return instr_install(spec, scope, self.project, self.lib, item)
-            return mcp_install(spec, scope, self.project, self.lib, item)
+            return mcp_install(spec, scope, self.project, self.lib, item, replace=replace, home=self.home)
         except (OpsError, ValueError) as e:
             return Result(False, str(e))
         except OSError as e:
@@ -679,7 +943,7 @@ class Manager:
                 return skill_uninstall(spec, scope, self.project, self.lib, name)
             if kind == "instruction":
                 return instr_uninstall(spec, scope, self.project, self.lib, name)
-            return mcp_uninstall(spec, scope, self.project, self.lib, name)
+            return mcp_uninstall(spec, scope, self.project, self.lib, name, self.home)
         except (OpsError, ValueError) as e:
             return Result(False, str(e))
         except OSError as e:
@@ -694,10 +958,10 @@ class Manager:
                     remember_locations(self.home, [directory])
                 r = skill_adopt(spec, scope, self.project, self.lib, name, overwrite=overwrite)
             elif kind == "mcp":
-                r = mcp_adopt(spec, scope, self.project, self.lib, name)
+                r = mcp_adopt(spec, scope, self.project, self.lib, name, self.home, overwrite=overwrite)
             else:
                 return Result(False, "Instructions chỉ nhập thủ công (copy nội dung vào instructions/<name>.md)")
-        except SkillConflict:
+        except (SkillConflict, McpConflict):
             raise
         except (OpsError, ValueError) as e:
             return Result(False, str(e))

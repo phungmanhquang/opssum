@@ -218,7 +218,7 @@ def test_tui_smoke(env):
             assert not (home / ".pi/agent/skills/commit-helper").exists()
             await pilot.press("2")
             await pilot.pause()
-            assert app.cur_kind == "mcp" and app.query_one("#matrix").row_count == 3
+            assert app.cur_kind == "mcp" and app.query_one("#matrix").row_count == 4
             await pilot.press("f")
             await pilot.pause()
             assert app.agent_filter == "claude"

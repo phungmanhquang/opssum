@@ -110,7 +110,8 @@ def test_startup_escape_and_external_other_groups(env):
             async with app.run_test(size=(120, 36)) as pilot:
                 modal = await startup(app, pilot)
                 assert modal.selected == {0}
-                assert {k.value for k in modal.query_one(DataTable).rows} == {"scope:global", "scope:project", "0"}
+                assert {k.value for k in modal.query_one(DataTable).rows} == {
+                    "scope:skill:global", "scope:skill:project", "scope:mcp:global", "scope:mcp:project", "0"}
                 await pilot.press("escape")
                 await app.workers.wait_for_complete()
                 table = app.query_one("#matrix", DataTable)

@@ -107,7 +107,8 @@ description: Viết commit message theo Conventional Commits từ git diff.
 
 ### MCP servers
 
-Mỗi file là một server, tên server = tên file. Hai kiểu:
+Mỗi file là một server. File `mcp/<server>.json` thuộc nhóm **other**;
+`mcp/<publisher>/<server>.json` thuộc nhóm nhà phát hành và vẫn cài vào agent dưới tên `<server>`. Hai kiểu:
 
 ```jsonc
 // mcp/context7.json — stdio
@@ -130,6 +131,17 @@ Mỗi file là một server, tên server = tên file. Hai kiểu:
 
 Cũng chấp nhận định dạng copy-paste từ README của MCP server (`{"mcpServers": {"tên": {...}}}`) — mỗi key thành một item.
 Công cụ tự chuyển sang đúng định dạng của từng agent (JSON `mcpServers`, TOML `[mcp_servers.x]` của Codex, `serverUrl` của agy…).
+Trong tab MCP, nhấn `i` để tìm trên [Claude Marketplaces](https://claudemarketplaces.com/mcp),
+chọn kết quả bằng Enter, xem mô tả đầy đủ bằng `i`, rồi xem/sửa JSON cấu hình trong modal.
+Nhóm nhà phát hành lấy owner GitHub của `sourceRepo` khi marketplace cung cấp,
+nếu không thì dùng phần đầu slug trên marketplace; có thể sửa tên trong modal.
+Điền env/API key/header cần thiết và nhấn Ctrl+S để lưu vào library. Nhấn `e` trên một
+MCP đã lưu để chỉnh lại cấu hình; agent đang cài sẽ hiện “cần cập nhật”, nhấn `u`
+để áp dụng. Công cụ **chỉ lưu cấu hình**, không chạy lệnh từ marketplace và không tải
+package hay Docker image; người dùng tự cài các phụ thuộc đó. Nếu trang không cung cấp
+cấu hình đọc được, modal cho phép nhập `command` + `args` hoặc `url` thủ công.
+API key nhập trực tiếp được lưu dạng plaintext trong library và config của agent;
+hãy bảo vệ các file này và tránh commit secrets vào Git.
 
 ### Instructions (AGENT file)
 
@@ -175,8 +187,9 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 | `u` | cập nhật item lệch (`◐`) theo library |
 | `A` / `X` | cài / gỡ item cho **tất cả** agent |
 | `m` | nhập item external (`◌`) vào library (skill, MCP) |
-| `i` | Install skills: nhập GitHub `owner/repo`, chọn skills để tải vào library |
-| `d` | xoá skill khỏi library, gỡ liên kết global và các project đã ghi nhận (có xác nhận) |
+| `i` | Tab Skills: nhập GitHub `owner/repo`; tab MCP: tìm trên Claude Marketplaces |
+| `e` | sửa JSON cấu hình của MCP đã có trong library |
+| `d` | xoá skill/MCP khỏi library, gỡ ở global và các project đã ghi nhận (có xác nhận) |
 | `1` `2` `3` hoặc `[` `]` | đổi tab |
 | `f` | lọc theo 1 agent (xoay vòng: all → claude → codex → …) |
 | `o` | chỉ hiện item đã cài |
@@ -204,10 +217,10 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 |---|---|---|
 | **Skill** | `symlink` từ thư mục agent → skill trong library (sửa 1 chỗ, mọi agent cùng thấy). Nếu OS không cho tạo symlink → báo lỗi và giữ bản cũ. Bản copy do tool cũ tạo được chuyển thành symlink khi cài lại | Chỉ gỡ symlink/copy do chính tool tạo. Thư mục skill bạn tự cài → hiện `◌`, **không** xoá |
 | **Instruction** | Chèn block có marker vào file memory | Xoá đúng block |
-| **MCP (JSON)** | Sửa key `mcpServers.<name>`, giữ nguyên mọi key khác; giữ quyền file (vd `~/.claude.json` mode 600); **backup** `<file>.agent-knowledge.bak` trước mỗi lần ghi; file JSON hỏng → từ chối ghi | Xoá key `<name>` (server tự khai báo sẽ hỏi xác nhận) |
+| **MCP (JSON)** | Sửa key `mcpServers.<name>`, giữ nguyên mọi key khác; giữ quyền file (vd `~/.claude.json` mode 600); **backup** `<file>.agent-knowledge.bak` trước mỗi lần ghi; file JSON hỏng → từ chối ghi | Xoá key `<name>` do ứng dụng quản lý; server tự khai báo cần đồng bộ bằng `m` trước |
 | **MCP (Codex TOML)** | Chèn block `# >>> agent-knowledge:<name> >>>` vào `config.toml`, không parse/ghi lại cả file | Xoá block. Server bạn khai báo tay trong `config.toml` chỉ đọc, không gỡ từ TUI |
 
-Nguyên tắc chung: **trùng tên với thứ không do tool quản lý → từ chối**, không ghi đè.
+Nguyên tắc chung: **trùng tên với thứ không do tool quản lý → hỏi xác nhận nếu có thể thay an toàn**, không ghi đè ngầm.
 
 ## 6. Đường dẫn từng agent
 
@@ -278,6 +291,8 @@ ak install   instruction:coding-style --all-agents -s project --project ~/work/m
 ak uninstall skill:commit-helper -a codex
 ak install   skill:anthropics/pdf -a codex               # liên kết skill của một nhà phát hành
 ak uninstall skill:anthropics/pdf --library              # xoá khỏi library và gỡ mọi liên kết đã ghi nhận
+ak install   mcp:upstash/context7 -a claude -a codex     # cài cấu hình MCP đã tìm/lưu trong TUI
+ak uninstall mcp:upstash/context7 --library               # xoá MCP và gỡ khỏi agent/project đã ghi nhận
 ```
 
 Mã thoát `1` nếu có thao tác thất bại.
@@ -320,11 +335,16 @@ Phím **`m`** trên skill external chuyển thư mục gốc vào library và th
 bằng symlink. Nếu nguồn vốn là symlink, tool copy nội dung và tài nguyên đi kèm
 vào library, rồi thay symlink ở agent bằng symlink mới trỏ tới library; thư mục
 nguồn thật được giữ nguyên. Nếu thao tác thất bại, tool khôi phục bản cũ.
-Luồng nhập MCP không thay đổi.
+MCP tự khai báo cũng được phát hiện ở global và project lúc mở TUI, cho phép nhập
+vào library bằng modal đồng bộ hoặc phím `m`. Library MCP được nhóm theo nhà phát hành;
+nhóm **other** dành cho MCP cũ/nhập tay, và **External** cho MCP chưa quản lý.
+Khi xoá MCP khỏi library bằng `d`, ứng dụng gỡ server trong tất cả file cấu hình đã
+ghi nhận và lưu bản sao vào `.trash`. Nếu hai nhà phát hành có server trùng tên,
+phải xác nhận trước khi thay bản đang dùng trong một agent.
 
-Mỗi lần mở TUI, ứng dụng quét các thư mục skills global của agent và các thư mục
-skills trong project hiện tại. Nếu có skill chưa được quản lý, hộp thoại đồng bộ
-hiện hai khối **Global skills** và **Project skills**, mặc định chọn tất cả.
+Mỗi lần mở TUI, ứng dụng quét skills và MCP global của agent cùng các cấu hình
+trong project hiện tại. Nếu có item chưa được quản lý, hộp thoại đồng bộ
+hiện bốn khối **Global skills**, **Project skills**, **Global MCP**, **Project MCP**, mặc định chọn tất cả.
 Nhấn Space để chọn/bỏ từng dòng, Enter để đồng bộ các dòng đã chọn, Esc để đóng
 mà không import. Đường dẫn dùng chung giữa nhiều agent chỉ xuất hiện một lần
 trong mỗi khối. Ứng dụng không quét các project khác ở bước này.
@@ -345,9 +365,11 @@ Project từng cài bằng phiên bản cũ cần được mở lại một lầ
 
 ## 9. Secrets (token, API key)
 
-**Đừng đặt token thật trong `~/.agent-knowledge`** nếu thư mục này nằm trong git. Mỗi agent xử lý biến môi trường khác nhau
-(Claude Code hỗ trợ `${VAR}` trong `.mcp.json`; Codex dùng `env_vars`/`bearer_token_env_var`…). Cách an toàn nhất hiện tại:
-khai báo MCP không kèm secret trong library, rồi thêm secret bằng tay vào config của từng agent (hoặc export biến môi trường).
+MCP modal cho nhập token/API key trực tiếp theo yêu cầu; các giá trị này được lưu
+trong JSON library và file agent, không mã hoá. File MCP mới dùng quyền `0600`
+trên hệ thống POSIX. **Không commit library hoặc bản backup chứa token lên Git.**
+Nếu không muốn lưu token trong library, dùng placeholder và cấu hình biến môi trường
+theo hướng dẫn riêng của agent/server.
 
 ## 10. Windows
 

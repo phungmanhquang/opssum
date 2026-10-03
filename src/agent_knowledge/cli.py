@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
         sp.add_argument("--all-agents", action="store_true", help="áp dụng cho mọi agent")
         sp.add_argument("-s", "--scope", choices=("global", "project"), default="global")
         if name == "uninstall":
-            sp.add_argument("--library", action="store_true", help="xoá skill khỏi library và gỡ các liên kết agent đã ghi nhận")
+            sp.add_argument("--library", action="store_true", help="xoá skill/MCP khỏi library và gỡ khỏi các agent đã ghi nhận")
     return ap
 
 
@@ -134,6 +134,17 @@ def cmd_apply(mgr: Manager, args, install: bool) -> int:
                 if not replace:
                     print(f"[{aid}] Bỏ qua {name}")
                     continue
+            if install and kind == "mcp":
+                state = mgr.states(aid, args.scope, "mcp").get(name)
+                conflict = mgr.mcp_conflict(aid, args.scope, name)
+                if conflict or (state and state.status == "outdated"):
+                    try:
+                        replace = input(f"{aid} đã có MCP {conflict or name}. Ghi đè cấu hình theo library? [y/N]: ").strip().lower() == "y"
+                    except EOFError:
+                        replace = False
+                    if not replace:
+                        print(f"[{aid}] Bỏ qua {name}")
+                        continue
             r = mgr.install(aid, args.scope, kind, name, replace=replace) if install else mgr.uninstall(aid, args.scope, kind, name)
             print(f"[{aid}] {'✔' if r.ok else '✘'} {r.msg}")
             fails += not r.ok
@@ -146,19 +157,19 @@ def cmd_remove(mgr: Manager, args) -> int:
     names = []
     for ref in args.items:
         kind, name = _parse_ref(ref)
-        if kind != "skill":
-            raise SystemExit("--library chỉ hỗ trợ skill.")
-        names.append(name)
+        if kind not in ("skill", "mcp"):
+            raise SystemExit("--library chỉ hỗ trợ skill và MCP.")
+        names.append((kind, name))
     fails = 0
-    for name in names:
+    for kind, name in names:
         try:
-            paths = mgr.skill_dependents(name)
+            paths = mgr.skill_dependents(name) if kind == "skill" else mgr.mcp_dependents(name)
             print(f"Xoá {name} khỏi library; gỡ {len(paths)} vị trí agent:")
             for path in paths:
-                print(f"  {path}")
+                print(f"  {path if kind == 'skill' else path[0]}")
             if input("Bản khôi phục lưu trong library/.trash. Đồng ý? [y/N]: ").strip().lower() != "y":
                 continue
-            result = mgr.remove_skill(name)
+            result = mgr.remove_skill(name) if kind == "skill" else mgr.remove_mcp(name)
             print(result.msg)
             fails += not result.ok
         except EOFError:

@@ -4,7 +4,7 @@ Cấu trúc:
 
     .agent-knowledge/
     ├── skills/[<publisher>/]<name>/SKILL.md
-    ├── mcp/<name>.json               # 1 server / file (hoặc dạng {"mcpServers": {...}})
+    ├── mcp/[<publisher>/]<name>.json # 1 server / file (hoặc dạng {"mcpServers": {...}})
     ├── instructions/<name>.md        # mảnh AGENTS.md / CLAUDE.md
     └── agents.json                   # (tuỳ chọn) override đường dẫn của từng agent
 """
@@ -52,6 +52,10 @@ class Item:
     def skill_name(self) -> str:
         return self.name.rsplit("/", 1)[-1]
 
+    @property
+    def server_name(self) -> str:
+        return self.name.rsplit("/", 1)[-1]
+
 
 def parse_frontmatter(text: str) -> tuple[dict[str, str], str]:
     m = re.match(r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|$)", text, re.S)
@@ -92,13 +96,21 @@ def normalize_mcp(raw: dict) -> tuple[dict, str]:
     desc = _squash(str(raw.get("description", "")))
     url = raw.get("url") or raw.get("serverUrl") or raw.get("httpUrl")
     if url:
+        if not isinstance(url, str) or not url.startswith(("https://", "http://")):
+            raise ValueError("URL MCP phải bắt đầu bằng https:// hoặc http://")
         t = str(raw.get("transport") or raw.get("type") or "http").lower()
         spec: dict = {"url": str(url), "transport": "sse" if t == "sse" else "http"}
         if raw.get("headers"):
+            if not isinstance(raw["headers"], dict):
+                raise ValueError("headers MCP phải là object JSON")
             spec["headers"] = {str(k): str(v) for k, v in dict(raw["headers"]).items()}
     elif raw.get("command"):
+        if not isinstance(raw["command"], str) or not isinstance(raw.get("args", []), list):
+            raise ValueError("command MCP phải là chuỗi và args phải là danh sách")
         spec = {"command": str(raw["command"]), "args": [str(a) for a in raw.get("args", [])]}
         if raw.get("env"):
+            if not isinstance(raw["env"], dict):
+                raise ValueError("env MCP phải là object JSON")
             spec["env"] = {str(k): str(v) for k, v in dict(raw["env"]).items()}
     else:
         raise ValueError("cần `command` (stdio) hoặc `url` (remote)")
@@ -188,8 +200,13 @@ class Library:
         out: list[Item] = []
         if not root.is_dir():
             return out
-        for f in sorted(root.glob("*.json"), key=lambda p: p.name.lower()):
+        files = sorted((*root.glob("*.json"), *root.glob("*/*.json")), key=lambda p: str(p).lower())
+        for f in files:
             if f.name.startswith("."):
+                continue
+            publisher = f.parent.name if f.parent != root else ""
+            if publisher and not NAME_RE.fullmatch(publisher):
+                self.errors.append(f"mcp/{publisher}: tên nhà phát hành không hợp lệ")
                 continue
             try:
                 raw = json.loads(f.read_text(encoding="utf-8"))
@@ -202,7 +219,7 @@ class Library:
             else:
                 entries = {f.stem: raw}
             for name, body in entries.items():
-                if not NAME_RE.match(name):
+                if not isinstance(name, str) or not NAME_RE.fullmatch(name):
                     self.errors.append(f"mcp/{f.name}: tên server `{name}` không hợp lệ")
                     continue
                 try:
@@ -210,6 +227,7 @@ class Library:
                 except ValueError as e:
                     self.errors.append(f"mcp/{f.name} ({name}): {e}")
                     continue
-                out.append(Item("mcp", name, desc, f, spec=spec))
+                reference = f"{publisher}/{name}" if publisher else name
+                out.append(Item("mcp", reference, desc, f, spec=spec, publisher=publisher))
         out.sort(key=lambda i: i.name.lower())
         return out

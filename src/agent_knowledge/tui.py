@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,12 +12,12 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
-from textual.widgets import DataTable, Footer, Input, Static
+from textual.widgets import DataTable, Footer, Input, Static, TextArea
 
 from . import __version__
-from . import remote
+from . import remote, mcp_marketplace
 from .catalog import KIND_LABEL, KINDS, Item
-from .ops import Manager, Result, State, ExternalSkill, SkillConflict
+from .ops import Manager, Result, State, ExternalSkill, ExternalMcp, SkillConflict, McpConflict
 
 ACCENT = "#d97757"
 OK = "#4eba65"
@@ -48,7 +49,7 @@ class Row:
 
     @property
     def key(self) -> str:
-        return f"@external:{self.name}" if self.kind == "skill" and self.item is None else self.name
+        return f"@external:{self.name}" if self.item is None else self.name
 
 
 # ----------------------------------------------------------------- modals
@@ -198,12 +199,106 @@ class SkillSelectScreen(ModalScreen[list[int] | None]):
         self.dismiss(None)
 
 
+class McpSearchScreen(ModalScreen[int | None]):
+    BINDINGS = [Binding("escape", "cancel", "Đóng"),
+                Binding("i", "description", "Mô tả", priority=True)]
+
+    def __init__(self, items: list[mcp_marketplace.Listing]):
+        super().__init__()
+        self.items = items
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mcp-search-dialog"):
+            yield Static("Kết quả MCP · Claude Marketplaces", classes="sync-title")
+            yield DataTable(id="mcp-results", cursor_type="row")
+            yield Static("Enter chọn để cấu hình · i xem mô tả · Esc đóng", classes="skill-hint")
+
+    def on_mount(self) -> None:
+        table = self.query_one(DataTable)
+        table.add_column("MCP", width=26)
+        table.add_column("Nhà phát hành", width=18)
+        table.add_column("Mô tả", width=52)
+        for index, item in enumerate(self.items):
+            table.add_row(Text(item.name, style="bold"), item.publisher,
+                          Text(item.description, style=DIM, no_wrap=True, overflow="ellipsis"), key=str(index))
+        table.focus()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.dismiss(int(event.row_key.value))
+
+    def action_description(self) -> None:
+        index = self.query_one(DataTable).cursor_row
+        if 0 <= index < len(self.items):
+            item = self.items[index]
+            self.app.push_screen(McpDescriptionScreen(item))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class McpDescriptionScreen(ModalScreen[None]):
+    BINDINGS = [Binding("escape,i", "close", "Quay lại")]
+
+    def __init__(self, item: mcp_marketplace.Listing):
+        super().__init__()
+        self.item = item
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="skill-description-dialog"):
+            yield Static(self.item.name, classes="sync-title")
+            with VerticalScroll(id="skill-description-scroll"):
+                yield Static(Text(self.item.description or "Chưa có mô tả.", style=DIM))
+                yield Static(f"Nguồn: {mcp_marketplace.BASE}/mcp/{self.item.slug}", classes="skill-hint")
+            yield Static("Esc / i quay lại", classes="skill-hint")
+
+    def on_mount(self) -> None:
+        self.query_one(VerticalScroll).focus()
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+
+class McpConfigScreen(ModalScreen[tuple[str, dict] | None]):
+    BINDINGS = [Binding("ctrl+s", "save", "Lưu", priority=True), Binding("escape", "cancel", "Huỷ", priority=True)]
+
+    def __init__(self, reference: str, config: dict, title: str = "Cấu hình MCP"):
+        super().__init__()
+        self.reference = reference
+        self.config = config
+        self.title_text = title
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="mcp-config-dialog"):
+            yield Static(self.title_text, classes="sync-title")
+            yield Static("Tên trong library: publisher/server hoặc server", classes="skill-hint")
+            yield Input(value=self.reference, id="mcp-reference")
+            yield Static("Sửa JSON bên dưới; điền API key/env/header trực tiếp trước khi lưu.", classes="skill-hint")
+            yield TextArea(json.dumps(self.config, indent=2, ensure_ascii=False), id="mcp-json", language="json")
+            yield Static("Ctrl+S lưu · Esc huỷ · Chỉ lưu cấu hình; không tải package/Docker", classes="skill-hint")
+
+    def action_save(self) -> None:
+        ref = self.query_one("#mcp-reference", Input).value.strip()
+        try:
+            config = json.loads(self.query_one("#mcp-json", TextArea).text)
+            from .catalog import NAME_RE, normalize_mcp
+            if len(ref.split("/")) not in (1, 2) or any(not NAME_RE.fullmatch(p) for p in ref.split("/")):
+                raise ValueError("Tên phải là server hoặc publisher/server hợp lệ.")
+            normalize_mcp(config)
+        except (ValueError, TypeError) as exc:
+            self.notify(str(exc), severity="error", timeout=6)
+            return
+        self.dismiss((ref, config))
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class SyncSkillsScreen(ModalScreen[list[int] | None]):
     BINDINGS = [Binding("escape", "cancel", "Đóng", priority=True),
                 Binding("enter", "submit", "Đồng bộ", priority=True),
                 Binding("space", "toggle", "Chọn/bỏ", priority=True)]
 
-    def __init__(self, skills: list[ExternalSkill], project: Path):
+    def __init__(self, skills: list[ExternalSkill | ExternalMcp], project: Path):
         super().__init__()
         self.skills = skills
         self.project = project
@@ -211,9 +306,9 @@ class SyncSkillsScreen(ModalScreen[list[int] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="sync-dialog"):
-            yield Static("Đồng bộ skills vào Agent Knowledge?", classes="sync-title")
+            yield Static("Đồng bộ skills và MCP vào Agent Knowledge?", classes="sync-title")
             yield Static(Text(f"Project: {_tilde(self.project)}"), classes="skill-hint")
-            yield Static("Thư mục gốc được chuyển vào library. Nếu là symlink, nguồn thật được giữ nguyên.", classes="skill-hint")
+            yield Static("Skills thành symlink; MCP được lưu cấu hình. Không tải package hay Docker.", classes="skill-hint")
             yield DataTable(id="sync-skills", cursor_type="row", cursor_foreground_priority="renderable")
             yield Static(id="sync-count", classes="skill-hint")
             yield Static("Space chọn/bỏ · Enter đồng bộ đã chọn · Esc đóng", classes="skill-hint")
@@ -224,14 +319,18 @@ class SyncSkillsScreen(ModalScreen[list[int] | None]):
     def _populate(self) -> None:
         table = self.query_one(DataTable)
         table.add_column("", key="check", width=3)
-        table.add_column("Skill", key="name", width=24)
+        table.add_column("Item", key="name", width=24)
         width = self.query_one("#sync-dialog").content_size.width
         table.add_column("Agent / đường dẫn", key="source", width=max(12, width - 38))
         first = None
-        for scope, label in (("global", "Global skills"), ("project", "Project skills")):
-            indices = [i for i, skill in enumerate(self.skills) if skill.scope == scope]
+        for kind, scope, label in (("skill", "global", "Global skills"),
+                                    ("skill", "project", "Project skills"),
+                                    ("mcp", "global", "Global MCP"),
+                                    ("mcp", "project", "Project MCP")):
+            indices = [i for i, skill in enumerate(self.skills)
+                       if skill.scope == scope and ("skill" if isinstance(skill, ExternalSkill) else "mcp") == kind]
             table.add_row("", Text(f"{label} ({len(indices)})", style="bold #e5e5e5"),
-                          "" if indices else "Không có skill chưa quản lý", key=f"scope:{scope}")
+                          "" if indices else "Không có item chưa quản lý", key=f"scope:{kind}:{scope}")
             for i in indices:
                 skill = self.skills[i]
                 if first is None:
@@ -243,7 +342,7 @@ class SyncSkillsScreen(ModalScreen[list[int] | None]):
         table.focus()
 
     def _count(self) -> None:
-        self.query_one("#sync-count", Static).update(f"Đã chọn {len(self.selected)} / {len(self.skills)} skills")
+        self.query_one("#sync-count", Static).update(f"Đã chọn {len(self.selected)} / {len(self.skills)} items")
 
     def action_toggle(self) -> None:
         table = self.query_one(DataTable)
@@ -271,13 +370,14 @@ class SyncProgressScreen(ModalScreen[None]):
 
 
 HELP = [
-    ("i", "Install skills từ GitHub (owner/repo) vào library"),
+    ("i", "Skills: GitHub owner/repo · MCP: tìm trên Claude Marketplaces"),
+    ("e", "sửa cấu hình MCP trong library"),
     ("Di chuyển", "↑ ↓ ← →  chọn ô (hàng = item, cột = agent)"),
     ("space / enter", "cài ↔ gỡ item cho agent ở cột đang chọn"),
     ("u", "cập nhật item đang lệch (◐) theo library"),
     ("A / X", "cài / gỡ item cho TẤT CẢ agent"),
     ("m", "nhập item external (◌) vào library"),
-    ("d", "xoá skill khỏi library và gỡ khỏi các agent đã ghi nhận"),
+    ("d", "xoá skill/MCP khỏi library và gỡ khỏi agent đã ghi nhận"),
     ("1 2 3  [ ]", "chuyển Skills / MCP / Instructions"),
     ("f", "lọc theo 1 agent (xem & quản lý riêng agent đó)"),
     ("o", "chỉ hiện item đã cài"),
@@ -318,14 +418,15 @@ class AgentKnowledgeApp(App):
     ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
-        Binding("i", "remote_install", "Install skills"),
+        Binding("i", "remote_install", "Tìm/cài"),
+        Binding("e", "edit_mcp", "sửa MCP", show=False),
         Binding("space", "toggle", "cài/gỡ", key_display="space"),
         Binding("enter", "toggle", "cài/gỡ", show=False),
         Binding("u", "update", "cập nhật", show=False),
         Binding("A", "install_all", "cài all", show=False),
         Binding("X", "uninstall_all", "gỡ all", show=False),
         Binding("m", "adopt", "nhập", show=True),
-        Binding("d", "remove_skill", "xoá skill"),
+        Binding("d", "remove_skill", "xoá library"),
         Binding("f", "filter", "agent"),
         Binding("s", "scope", "scope"),
         Binding("o", "only", "đã cài"),
@@ -385,7 +486,7 @@ class AgentKnowledgeApp(App):
         names = set(lib_items)
         for st in per.values():
             names |= set(st)
-        if kind == "skill":
+        if kind in ("skill", "mcp"):
             external: dict[str, dict[str, State]] = {}
             for aid, states in per.items():
                 for name, state in states.items():
@@ -441,7 +542,7 @@ class AgentKnowledgeApp(App):
             aid = agents[0].id
             rows.sort(key=lambda r: ((r.states.get(aid) or State("absent")).status == "absent",
                                      r.item is None, r.name.lower()))
-        if self.cur_kind == "skill":
+        if self.cur_kind in ("skill", "mcp"):
             rows.sort(key=lambda r: (2, "") if r.item is None else
                       ((0, r.item.publisher.casefold()) if r.item.publisher else (1, "")))
         self.rows_data = rows
@@ -473,7 +574,7 @@ class AgentKnowledgeApp(App):
 
         row_keys = []
         last_publisher = None
-        grouped = self.cur_kind == "skill"
+        grouped = self.cur_kind in ("skill", "mcp")
         for r in rows:
             publisher = r.item.publisher if r.item else "@external"
             if grouped and publisher != last_publisher:
@@ -484,7 +585,7 @@ class AgentKnowledgeApp(App):
                                 for column in list(table.columns.values())[1:]], key=divider)
                 row_keys.append(divider)
                 last_publisher = publisher
-            label = r.item.skill_name if r.item and self.cur_kind == "skill" else r.name
+            label = r.item.skill_name if r.item and self.cur_kind in ("skill", "mcp") else r.name
             name = Text(label, style="bold") if r.item else Text(r.name, style=f"italic {EXT}")
             desc = Text(_clip(r.item.description, desc_w - 1), style=DIM) if r.item else \
                 Text("external — chưa có trong library", style=f"italic {DIM}")
@@ -621,16 +722,19 @@ class AgentKnowledgeApp(App):
         self._remote_busy = True
         try:
             skills, errors = await self._remote_io(self.mgr.external_skills)
+            mcps, mcp_errors = await self._remote_io(self.mgr.external_mcps)
+            errors += mcp_errors
             for error in errors:
                 self.notify(error, severity="warning", timeout=8)
-            if skills:
-                selected = await self.push_screen_wait(SyncSkillsScreen(skills, self.mgr.project))
+            candidates = [*skills, *mcps]
+            if candidates:
+                selected = await self.push_screen_wait(SyncSkillsScreen(candidates, self.mgr.project))
                 if selected:
-                    await self._sync_candidates([skills[i] for i in selected])
+                    await self._sync_candidates([candidates[i] for i in selected])
         finally:
             self._remote_busy = False
 
-    async def _sync_candidates(self, skills: list[ExternalSkill]) -> None:
+    async def _sync_candidates(self, skills: list[ExternalSkill | ExternalMcp]) -> None:
         progress = SyncProgressScreen()
         await self.push_screen(progress)
         count = 0
@@ -639,7 +743,8 @@ class AgentKnowledgeApp(App):
             for index, skill in enumerate(skills, 1):
                 progress.query_one("#sync-progress", Static).update(Text(f"Đồng bộ {index}/{len(skills)}: {skill.name}\n{skill.path}"))
                 try:
-                    result = await self._remote_io(self.mgr.adopt, skill.agent_id, skill.scope, "skill", skill.name)
+                    kind = "skill" if isinstance(skill, ExternalSkill) else "mcp"
+                    result = await self._remote_io(self.mgr.adopt, skill.agent_id, skill.scope, kind, skill.name)
                 except SkillConflict:
                     if not await self.push_screen_wait(ConfirmScreen(
                         f"Library đã có {skill.name} với nội dung khác.\nGhi đè bằng bản từ {skill.path}?\n"
@@ -647,6 +752,12 @@ class AgentKnowledgeApp(App):
                     )):
                         continue
                     result = await self._remote_io(self.mgr.adopt, skill.agent_id, skill.scope, "skill", skill.name, overwrite=True)
+                except McpConflict:
+                    if not await self.push_screen_wait(ConfirmScreen(
+                        f"Library đã có MCP {skill.name} với cấu hình khác.\n"
+                        f"Ghi đè bằng bản tại {skill.path}? Các agent khác sẽ cần cập nhật cấu hình.")):
+                        continue
+                    result = await self._remote_io(self.mgr.adopt, skill.agent_id, skill.scope, "mcp", skill.name, overwrite=True)
                 if result.ok:
                     count += 1
                 else:
@@ -655,16 +766,78 @@ class AgentKnowledgeApp(App):
             self.pop_screen()
             self.mgr.reload()
             self.rebuild()
-        self.notify(f"Đã đồng bộ {count}/{len(skills)} skills.", timeout=5)
+        self.notify(f"Đã đồng bộ {count}/{len(skills)} items.", timeout=5)
         for error in errors:
             self.notify(error, severity="error", timeout=10)
 
     def action_remote_install(self) -> None:
         if self._remote_busy:
-            self.notify("Đang xử lý repository, vui lòng chờ.")
+            self.notify("Đang xử lý nguồn từ xa, vui lòng chờ.")
             return
         self._remote_busy = True
-        self.run_worker(self._remote_install(), name="install-skills")
+        if self.cur_kind == "mcp":
+            self.run_worker(self._remote_mcp(), name="search-mcp")
+        elif self.cur_kind == "skill":
+            self.run_worker(self._remote_install(), name="install-skills")
+        else:
+            self._remote_busy = False
+            self.notify("Chọn tab Skills hoặc MCP để tìm cài.", severity="warning")
+
+    async def _remote_mcp(self) -> None:
+        try:
+            query = await self.push_screen_wait(PromptScreen("Tìm MCP trên Claude Marketplaces"))
+            if not query:
+                return
+            self.notify(f"Đang tìm MCP: {query}…", timeout=5)
+            listings = await self._remote_io(mcp_marketplace.search, query)
+            if not listings:
+                self.notify("Không tìm thấy MCP phù hợp.", severity="warning")
+                return
+            index = await self.push_screen_wait(McpSearchScreen(listings))
+            if index is None:
+                return
+            listing = listings[index]
+            try:
+                name, spec = await self._remote_io(mcp_marketplace.configuration, listing)
+            except ValueError as exc:
+                self.notify(str(exc), severity="warning", timeout=8)
+                name, spec = listing.slug.rsplit("/", 1)[-1], {"command": "", "args": []}
+            reference = f"{listing.publisher}/{name}"
+            config = {"description": listing.description, **spec}
+            edited = await self.push_screen_wait(McpConfigScreen(reference, config, f"Cấu hình MCP · {listing.name}"))
+            if edited is None:
+                return
+            reference, config = edited
+            overwrite = self.mgr.lib.get("mcp", reference) is not None
+            if overwrite and not await self.push_screen_wait(ConfirmScreen(
+                f"Ghi đè MCP {reference} trong library?\nCác agent đang quản lý MCP này sẽ cần cập nhật.")):
+                return
+            self._finish(self.mgr.save_mcp(reference, config, overwrite=overwrite))
+        except (ValueError, OSError, json.JSONDecodeError) as exc:
+            self.notify(str(exc), severity="error", timeout=8)
+        finally:
+            self._remote_busy = False
+            self.mgr.reload()
+            if self.is_running:
+                self.rebuild()
+
+    def action_edit_mcp(self) -> None:
+        cur = self._current()
+        if cur is None or cur[0].kind != "mcp" or cur[0].item is None:
+            self.notify("Chọn MCP trong library để sửa cấu hình.", severity="warning")
+            return
+        item = cur[0].item
+        async def edit() -> None:
+            config = {"description": item.description, **item.spec}
+            edited = await self.push_screen_wait(McpConfigScreen(item.name, config, f"Sửa MCP · {item.name}"))
+            if edited is None:
+                return
+            reference, body = edited
+            if reference != item.name:
+                self.notify("Không đổi tên khi sửa; hãy cài bản mới nếu cần tên khác.", severity="warning")
+                return
+            self._finish(self.mgr.save_mcp(reference, body, overwrite=True))
+        self.run_worker(edit(), name="edit-mcp")
 
     async def _remote_install(self) -> None:
         try:
@@ -719,9 +892,10 @@ class AgentKnowledgeApp(App):
         if st is None:
             return
         if st.status == "absent":
-            conflict = self.mgr.skill_conflict(aid, self.cur_scope, row.name) if row.kind == "skill" else None
+            conflict = (self.mgr.skill_conflict(aid, self.cur_scope, row.name) if row.kind == "skill" else
+                        self.mgr.mcp_conflict(aid, self.cur_scope, row.name) if row.kind == "mcp" else None)
             if conflict:
-                self._confirm(f"{aid} đang dùng {conflict}.\nĐổi symlink sang {row.name}?", lambda:
+                self._confirm(f"{aid} đang dùng {conflict}.\nThay bằng {row.name}?", lambda:
                               self._finish(self.mgr.install(aid, self.cur_scope, row.kind, row.name, replace=True)))
             else:
                 self._finish(self.mgr.install(aid, self.cur_scope, row.kind, row.name))
@@ -750,7 +924,8 @@ class AgentKnowledgeApp(App):
             return
 
         def do() -> None:
-            self._finish(self.mgr.install(aid, self.cur_scope, row.kind, row.name))
+            self._finish(self.mgr.install(aid, self.cur_scope, row.kind, row.name,
+                                          replace=row.kind == "mcp" and not st.managed))
 
         if st.managed:
             do()
@@ -768,7 +943,8 @@ class AgentKnowledgeApp(App):
                    if (row.states.get(a.id) or State("absent")).status in ("absent", "outdated")
                    and (row.states.get(a.id) or State("absent")).managed]
         conflicts = [f"{aid}: {conflict}" for aid in targets
-                     if row.kind == "skill" and (conflict := self.mgr.skill_conflict(aid, self.cur_scope, row.name))]
+                     if (conflict := (self.mgr.skill_conflict(aid, self.cur_scope, row.name) if row.kind == "skill" else
+                                      self.mgr.mcp_conflict(aid, self.cur_scope, row.name) if row.kind == "mcp" else None))]
 
         def do() -> None:
             results = [self.mgr.install(aid, self.cur_scope, row.kind, row.name, replace=bool(conflicts)) for aid in targets]
@@ -778,7 +954,7 @@ class AgentKnowledgeApp(App):
             self.rebuild()
 
         if conflicts:
-            self._confirm(f"Đổi các symlink sau sang {row.name}?\n" + "\n".join(conflicts), do)
+            self._confirm(f"Thay các bản sau bằng {row.name}?\n" + "\n".join(conflicts), do)
         else:
             do()
 
@@ -819,23 +995,28 @@ class AgentKnowledgeApp(App):
             self._confirm(f"Đồng bộ {row.name} vào library?\nThư mục gốc được chuyển; nếu là symlink, nguồn thật được giữ nguyên.", lambda:
                           self.run_worker(self._sync_candidates([candidate]), name="import-skill"))
         else:
-            self._finish(self.mgr.adopt(aid, self.cur_scope, row.kind, row.name))
+            self._confirm(f"Đồng bộ MCP {row.name} vào library?\nCấu hình gốc tại agent sẽ được quản lý bởi Agent Knowledge.",
+                          lambda: self.run_worker(self._sync_candidates([
+                              ExternalMcp(row.name, aid, self.cur_scope,
+                                          self.mgr.agents[aid].resolve("mcp", self.cur_scope, self.mgr.project))
+                          ]), name="import-mcp"))
 
     def action_remove_skill(self) -> None:
         cur = self._current()
-        if cur is None or cur[0].kind != "skill" or cur[0].item is None:
-            self.notify("Chọn một skill trong library để xoá.", severity="warning")
+        if cur is None or cur[0].kind not in ("skill", "mcp") or cur[0].item is None:
+            self.notify("Chọn skill hoặc MCP trong library để xoá.", severity="warning")
             return
         row = cur[0]
         try:
-            paths = self.mgr.skill_dependents(row.name)
+            paths = self.mgr.skill_dependents(row.name) if row.kind == "skill" else self.mgr.mcp_dependents(row.name)
         except (OSError, ValueError) as exc:
             self.notify(str(exc), severity="error")
             return
         message = f"Xoá {row.name} khỏi library và gỡ {len(paths)} vị trí agent?\n"
-        message += "\n".join(_tilde(p) for p in paths)
+        message += "\n".join(_tilde(p if isinstance(p, Path) else p[0]) for p in paths)
         message += "\nBản khôi phục được lưu trong library/.trash."
-        self._confirm(message, lambda: self._finish(self.mgr.remove_skill(row.name)))
+        self._confirm(message, lambda: self._finish(self.mgr.remove_skill(row.name) if row.kind == "skill"
+                                                  else self.mgr.remove_mcp(row.name)))
 
     def action_filter(self) -> None:
         order: list[str | None] = [None] + [a.id for a in self.mgr.agent_list()]
@@ -878,6 +1059,7 @@ class AgentKnowledgeApp(App):
                 return
             self.mgr.project = p.resolve()
             self.mgr.remember_skill_locations()
+            self.mgr.remember_mcp_locations()
             self.rebuild()
         self.push_screen(PromptScreen("Thư mục project", str(self.mgr.project)), cb)
 

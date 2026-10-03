@@ -131,6 +131,36 @@ SyncProgressScreen {
     background: #000000 70%;
 }
 
+McpSearchScreen,
+McpDescriptionScreen,
+McpConfigScreen {
+    align: center middle;
+    background: #000000 70%;
+}
+
+#mcp-search-dialog, #mcp-config-dialog {
+    width: 104;
+    max-width: 96%;
+    height: 29;
+    max-height: 92%;
+    padding: 1 2;
+    background: #171717;
+    border: round #737373;
+}
+
+#mcp-results, #mcp-json {
+    height: 1fr;
+    margin: 1 0;
+    background: #111111;
+    border: round #292929;
+}
+
+#mcp-reference {
+    margin: 1 0;
+    background: #111111;
+    border: round #333333;
+}
+
 #dialog {
     width: 72;
     height: auto;
