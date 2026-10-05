@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_knowledge.ops import Manager, SkillConflict
-from agent_knowledge.tui import AgentKnowledgeApp, SyncSkillsScreen, ConfirmScreen
+from opssum.ops import Manager, SkillConflict
+from opssum.tui import OpssumApp, SyncSkillsScreen, ConfirmScreen
 
 
 @pytest.fixture
@@ -14,7 +14,7 @@ def env(tmp_path, monkeypatch):
     user.mkdir()
     monkeypatch.setenv("HOME", str(user))
     monkeypatch.setenv("USERPROFILE", str(user))
-    for key in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "AGENT_KNOWLEDGE_HOME"):
+    for key in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "OPSSUM_HOME"):
         monkeypatch.delenv(key, raising=False)
     project = tmp_path / "project"
     project.mkdir()
@@ -106,7 +106,7 @@ def test_startup_escape_and_external_other_groups(env):
 
     async def run():
         for _ in range(2):  # every opening asks again after Esc
-            app = AgentKnowledgeApp(mgr)
+            app = OpssumApp(mgr)
             async with app.run_test(size=(120, 36)) as pilot:
                 modal = await startup(app, pilot)
                 assert modal.selected == {0}
@@ -136,7 +136,7 @@ def test_startup_enter_imports_global_project_and_leaves_real_source(env, tmp_pa
     regular = skill(mgr.project / ".pi/skills/local")
 
     async def run():
-        app = AgentKnowledgeApp(mgr)
+        app = OpssumApp(mgr)
         async with app.run_test(size=(120, 36)) as pilot:
             modal = await startup(app, pilot)
             assert len(modal.selected) == 3
@@ -146,7 +146,7 @@ def test_startup_enter_imports_global_project_and_leaves_real_source(env, tmp_pa
             assert regular.is_symlink()
             assert (shared / "SKILL.md").read_text() == "original"
             assert not mgr.external_skills()[0]
-        fresh = AgentKnowledgeApp(Manager(mgr.home, mgr.project))
+        fresh = OpssumApp(Manager(mgr.home, mgr.project))
         async with fresh.run_test() as pilot:
             await fresh.workers.wait_for_complete()
             assert not isinstance(fresh.screen, SyncSkillsScreen)
@@ -163,7 +163,7 @@ def test_startup_deselect_and_confirm_overwrite(env, answer):
     mgr.reload()
 
     async def run():
-        app = AgentKnowledgeApp(mgr)
+        app = OpssumApp(mgr)
         async with app.run_test(size=(120, 36)) as pilot:
             modal = await startup(app, pilot)
             from textual.widgets import DataTable
@@ -192,7 +192,7 @@ def test_rollback_failure_retains_original_backup(env, monkeypatch):
     rename = Path.rename
 
     def fail_link_and_restore(path, target):
-        if path.name in ("link", "old") and path.parent.name.startswith(".ak-adopt-"):
+        if path.name in ("link", "old") and path.parent.name.startswith(".opssum-adopt-"):
             raise OSError("filesystem failure")
         return rename(path, target)
 
@@ -200,6 +200,6 @@ def test_rollback_failure_retains_original_backup(env, monkeypatch):
     result = mgr.adopt("claude", "global", "skill", "pdf")
     assert not result.ok
     assert "Dữ liệu được giữ tại" in result.msg
-    backups = list(source.parent.glob(".ak-adopt-*/old/SKILL.md"))
+    backups = list(source.parent.glob(".opssum-adopt-*/old/SKILL.md"))
     assert len(backups) == 1
     assert backups[0].read_text() == "must survive"

@@ -306,7 +306,7 @@ class SyncSkillsScreen(ModalScreen[list[int] | None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="sync-dialog"):
-            yield Static("Đồng bộ skills và MCP vào Agent Knowledge?", classes="sync-title")
+            yield Static("Đồng bộ skills và MCP vào opssum?", classes="sync-title")
             yield Static(Text(f"Project: {_tilde(self.project)}"), classes="skill-hint")
             yield Static("Skills thành symlink; MCP được lưu cấu hình. Không tải package hay Docker.", classes="skill-hint")
             yield DataTable(id="sync-skills", cursor_type="row", cursor_foreground_priority="renderable")
@@ -412,9 +412,9 @@ class HelpScreen(ModalScreen[None]):
 
 
 # -------------------------------------------------------------------- app
-class AgentKnowledgeApp(App):
+class OpssumApp(App):
     CSS_PATH = "tui.tcss"
-    TITLE = "Agent Knowledge"
+    TITLE = "opssum"
     ENABLE_COMMAND_PALETTE = False
 
     BINDINGS = [
@@ -463,7 +463,7 @@ class AgentKnowledgeApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#banner", Static).border_title = f"✻ Agent Knowledge  v{__version__}"
+        self.query_one("#banner", Static).border_title = f"✻ opssum  v{__version__}"
         self.query_one("#matrix", DataTable).focus()
         self._loaded = True
         self.rebuild()
@@ -666,7 +666,7 @@ class AgentKnowledgeApp(App):
             d = self.mgr.lib.dir_for(self.cur_kind)
             box.update(Text(
                 f"Chưa có {KIND_LABEL[self.cur_kind]} nào.\n"
-                f"Thêm file vào {_tilde(d)} rồi nhấn r — hoặc chạy `agent-knowledge init --examples`.",
+                f"Thêm file vào {_tilde(d)} rồi nhấn r — hoặc chạy `opssum init --examples`.",
                 style=DIM))
             return
         row, aid = cur
@@ -845,7 +845,7 @@ class AgentKnowledgeApp(App):
             if not repository:
                 return
             self.notify(f"Đang tải {repository}…", timeout=5)
-            with tempfile.TemporaryDirectory(prefix="ak-skills-") as temp:
+            with tempfile.TemporaryDirectory(prefix="opssum-skills-") as temp:
                 skills = await self._remote_io(remote.download, repository, Path(temp) / "repo")
                 selected = await self.push_screen_wait(SkillSelectScreen(skills, self.mgr.home))
                 if selected is None:
@@ -910,7 +910,7 @@ class AgentKnowledgeApp(App):
         if st.managed:
             do()
         else:
-            self._confirm(f"Gỡ [{row.name}] khỏi {aid}?\nItem này không do agent-knowledge tạo "
+            self._confirm(f"Gỡ [{row.name}] khỏi {aid}?\nItem này không do opssum tạo "
                           f"(file config sẽ được backup trước khi sửa).", do)
 
     def action_update(self) -> None:
@@ -995,7 +995,7 @@ class AgentKnowledgeApp(App):
             self._confirm(f"Đồng bộ {row.name} vào library?\nThư mục gốc được chuyển; nếu là symlink, nguồn thật được giữ nguyên.", lambda:
                           self.run_worker(self._sync_candidates([candidate]), name="import-skill"))
         else:
-            self._confirm(f"Đồng bộ MCP {row.name} vào library?\nCấu hình gốc tại agent sẽ được quản lý bởi Agent Knowledge.",
+            self._confirm(f"Đồng bộ MCP {row.name} vào library?\nCấu hình gốc tại agent sẽ được quản lý bởi opssum.",
                           lambda: self.run_worker(self._sync_candidates([
                               ExternalMcp(row.name, aid, self.cur_scope,
                                           self.mgr.agents[aid].resolve("mcp", self.cur_scope, self.mgr.project))
@@ -1068,4 +1068,4 @@ class AgentKnowledgeApp(App):
 
 
 def run(mgr: Manager) -> None:
-    AgentKnowledgeApp(mgr).run()
+    OpssumApp(mgr).run()

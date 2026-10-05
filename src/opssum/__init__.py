@@ -16,7 +16,7 @@ def _version() -> str:
         if project and (match := re.search(r'(?m)^version\s*=\s*"([^"]+)"', project.group())):
             return match.group(1)
     try:
-        return version("agent-knowledge")
+        return version("opssum")
     except PackageNotFoundError:
         return "0+unknown"
 

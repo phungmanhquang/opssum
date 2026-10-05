@@ -39,7 +39,7 @@ def remember_locations(home: Path, locations: list[Path]) -> None:
 def _points_to(path: Path, source: Path) -> bool:
     if path.is_symlink():
         return path.resolve() == source.resolve()
-    marker = path / ".agent-knowledge"
+    marker = path / ".opssum"
     return marker.is_file() and Path(marker.read_text(encoding="utf-8").strip()).resolve() == source.resolve()
 
 

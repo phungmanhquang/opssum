@@ -28,7 +28,7 @@ class Listing:
 
 
 def _get(path: str) -> bytes:
-    request = Request(BASE + path, headers={"User-Agent": "agent-knowledge-tui/1.0", "Accept": "text/html,application/json"})
+    request = Request(BASE + path, headers={"User-Agent": "opssum-tui/1.0", "Accept": "text/html,application/json"})
     with urlopen(request, timeout=15) as response:
         data = response.read(MAX_RESPONSE + 1)
     if len(data) > MAX_RESPONSE:

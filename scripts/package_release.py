@@ -41,10 +41,10 @@ def main() -> int:
         raise RuntimeError(f"Runner không đúng kiến trúc: {actual_os}/{actual_arch}; cần {target}")
 
     root = Path(__file__).resolve().parents[1]
-    binary = root / "dist" / ("agent-knowledge.exe" if os.name == "nt" else "agent-knowledge")
+    binary = root / "dist" / ("opssum.exe" if os.name == "nt" else "opssum")
     if not binary.is_file():
         raise FileNotFoundError(f"PyInstaller chưa tạo binary: {binary}")
-    asset_name = f"agent-knowledge-{target}" + (".exe" if os.name == "nt" else "")
+    asset_name = f"opssum-{target}" + (".exe" if os.name == "nt" else "")
     assets = root / "dist" / "release-assets"
     assets.mkdir(parents=True, exist_ok=True)
     asset = assets / asset_name
@@ -54,9 +54,9 @@ def main() -> int:
 
     version = run_checked(str(asset), "--version")
     expected_version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-    if version != f"agent-knowledge {expected_version}":
-        raise RuntimeError(f"Binary trả về version {version!r}; cần agent-knowledge {expected_version}")
-    with tempfile.TemporaryDirectory(prefix="ak-release-smoke-") as temp:
+    if version != f"opssum {expected_version}":
+        raise RuntimeError(f"Binary trả về version {version!r}; cần opssum {expected_version}")
+    with tempfile.TemporaryDirectory(prefix="opssum-release-smoke-") as temp:
         home = Path(temp) / "library"
         run_checked(str(asset), "init", "--home", str(home), "--examples")
         data = json.loads(run_checked(str(asset), "list", "--home", str(home), "--json"))

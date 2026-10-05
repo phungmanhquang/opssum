@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from agent_knowledge import remote
-from agent_knowledge.cli import main
-from agent_knowledge.ops import Manager
+from opssum import remote
+from opssum.cli import main
+from opssum.ops import Manager
 
 
 def make_skill(root, name, body="new"):
@@ -112,12 +112,12 @@ def test_cli_selection_and_confirmation(repository, tmp_path, monkeypatch, answe
 
 @pytest.mark.parametrize("answer, expected", [("n", "local edits"), ("y", "new")])
 def test_tui_install(repository, tmp_path, monkeypatch, answer, expected):
-    from agent_knowledge.tui import AgentKnowledgeApp, SkillSelectScreen, ConfirmScreen
+    from opssum.tui import OpssumApp, SkillSelectScreen, ConfirmScreen
     from textual.widgets import Input
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
     home = tmp_path / "library"
     target = make_skill(home, "alpha", "local edits")
-    app = AgentKnowledgeApp(Manager(home, tmp_path))
+    app = OpssumApp(Manager(home, tmp_path))
 
     async def run():
         async with app.run_test(size=(120, 40)) as pilot:
@@ -152,14 +152,14 @@ def test_tui_install(repository, tmp_path, monkeypatch, answer, expected):
 
 @pytest.mark.parametrize("size", [(120, 40), (65, 24)])
 def test_skill_description_and_checkbox_layout(tmp_path, monkeypatch, size):
-    from agent_knowledge.tui import AgentKnowledgeApp, SkillSelectScreen, SkillDescriptionScreen
+    from opssum.tui import OpssumApp, SkillSelectScreen, SkillDescriptionScreen
     from textual.widgets import DataTable
     from textual.containers import VerticalScroll
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
     description = "Mô tả dài cần đọc đầy đủ. " * 150
     skills = [remote.RemoteSkill("long-description", tmp_path, description),
               remote.RemoteSkill("second-skill", tmp_path, "Mô tả thứ hai")]
-    app = AgentKnowledgeApp(Manager(tmp_path / "library", tmp_path))
+    app = OpssumApp(Manager(tmp_path / "library", tmp_path))
 
     async def run():
         async with app.run_test(size=size) as pilot:

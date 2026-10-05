@@ -26,14 +26,14 @@ for part do
   case "$part" in https://*) url=$part ;; esac
   previous=$part
 done
-cp "$AK_TEST_ASSETS/${url##*/}" "$out"
+cp "$OPSSUM_TEST_ASSETS/${url##*/}" "$out"
 """)
     curl.chmod(0o755)
     uname = tools / "uname"
     uname.write_text("""#!/bin/sh
 case "$1" in
-  -s) printf '%s\\n' "$AK_TEST_OS" ;;
-  -m) printf '%s\\n' "$AK_TEST_ARCH" ;;
+  -s) printf '%s\\n' "$OPSSUM_TEST_OS" ;;
+  -m) printf '%s\\n' "$OPSSUM_TEST_ARCH" ;;
 esac
 """)
     uname.chmod(0o755)
@@ -41,7 +41,7 @@ esac
 
 
 def _asset(directory: Path, name: str, version: str, *, bad_checksum: bool = False) -> bytes:
-    binary = f"#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'agent-knowledge {version}'; fi\n".encode()
+    binary = f"#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'opssum {version}'; fi\n".encode()
     (directory / name).write_bytes(binary)
     digest = hashlib.sha256(binary).hexdigest()
     if bad_checksum:
@@ -51,10 +51,10 @@ def _asset(directory: Path, name: str, version: str, *, bad_checksum: bool = Fal
 
 
 @pytest.mark.parametrize("system,architecture,asset", [
-    ("Linux", "x86_64", "agent-knowledge-linux-x64"),
-    ("Linux", "aarch64", "agent-knowledge-linux-arm64"),
-    ("Darwin", "x86_64", "agent-knowledge-macos-x64"),
-    ("Darwin", "arm64", "agent-knowledge-macos-arm64"),
+    ("Linux", "x86_64", "opssum-linux-x64"),
+    ("Linux", "aarch64", "opssum-linux-arm64"),
+    ("Darwin", "x86_64", "opssum-macos-x64"),
+    ("Darwin", "arm64", "opssum-macos-arm64"),
 ])
 def test_install_update_and_checksum_failure(tmp_path, system, architecture, asset):
     assets = tmp_path / "assets"
@@ -62,8 +62,8 @@ def test_install_update_and_checksum_failure(tmp_path, system, architecture, ass
     mockbin = _mock_tools(tmp_path)
     home = tmp_path / "home"
     home.mkdir()
-    env = {**os.environ, "HOME": str(home), "AGENT_KNOWLEDGE_REPO": "owner/repo",
-           "AK_TEST_ASSETS": str(assets), "AK_TEST_OS": system, "AK_TEST_ARCH": architecture,
+    env = {**os.environ, "HOME": str(home), "OPSSUM_REPO": "owner/repo",
+           "OPSSUM_TEST_ASSETS": str(assets), "OPSSUM_TEST_OS": system, "OPSSUM_TEST_ARCH": architecture,
            "PATH": str(mockbin) + os.pathsep + os.environ["PATH"]}
 
     def install():
@@ -72,9 +72,8 @@ def test_install_update_and_checksum_failure(tmp_path, system, architecture, ass
     first = _asset(assets, asset, "1.0.0")
     result = install()
     assert result.returncode == 0, result.stderr
-    destination = home / ".local/bin/agent-knowledge"
+    destination = home / ".local/bin/opssum"
     assert destination.read_bytes() == first
-    assert (home / ".local/bin/ak").is_symlink()
     assert "PATH" in result.stdout
 
     assert "đã là bản mới nhất" in install().stdout
@@ -93,7 +92,7 @@ def test_placeholder_fails_before_download(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     env = {**os.environ, "HOME": str(home)}
-    env.pop("AGENT_KNOWLEDGE_REPO", None)
+    env.pop("OPSSUM_REPO", None)
     result = subprocess.run(["sh", str(INSTALLER)], env=env, capture_output=True, text=True)
     assert result.returncode != 0
     assert "Chưa cấu hình GitHub owner/repo" in result.stderr

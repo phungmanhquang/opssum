@@ -1,9 +1,9 @@
-"""Tạo thư mục .agent-knowledge mới (+ dữ liệu mẫu để thử TUI)."""
+"""Tạo thư mục .opssum mới (+ dữ liệu mẫu để thử TUI)."""
 from __future__ import annotations
 
 from pathlib import Path
 
-README = """# .agent-knowledge
+README = """# .opssum
 
 Nguồn sự thật (single source of truth) cho skills, MCP và instructions của mọi agent CLI.
 
@@ -12,7 +12,7 @@ Nguồn sự thật (single source of truth) cho skills, MCP và instructions c�
 - `instructions/<name>.md`     Mảnh AGENTS.md / CLAUDE.md, được chèn vào file memory của agent
 - `agents.json`                (tuỳ chọn) override đường dẫn của từng agent
 
-Chạy `agent-knowledge` để mở TUI.
+Chạy `opssum` để mở TUI.
 """
 
 AGENTS_JSON = """{

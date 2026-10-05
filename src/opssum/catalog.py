@@ -1,8 +1,8 @@
-"""Đọc thư mục library `.agent-knowledge`.
+"""Đọc thư mục library `.opssum`.
 
 Cấu trúc:
 
-    .agent-knowledge/
+    .opssum/
     ├── skills/[<publisher>/]<name>/SKILL.md
     ├── mcp/[<publisher>/]<name>.json # 1 server / file (hoặc dạng {"mcpServers": {...}})
     ├── instructions/<name>.md        # mảnh AGENTS.md / CLAUDE.md
@@ -26,13 +26,13 @@ KIND_ALIASES = {
     "rule": "instruction", "rules": "instruction", "agent-file": "instruction",
 }
 NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-DEFAULT_HOME_NAME = ".agent-knowledge"
+DEFAULT_HOME_NAME = ".opssum"
 
 
 def default_home(override: str | os.PathLike | None = None) -> Path:
     if override:
         return Path(override).expanduser()
-    env = os.environ.get("AGENT_KNOWLEDGE_HOME")
+    env = os.environ.get("OPSSUM_HOME")
     if env:
         return Path(env).expanduser()
     return Path.home() / DEFAULT_HOME_NAME

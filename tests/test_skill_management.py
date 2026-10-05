@@ -5,10 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from agent_knowledge import remote
-from agent_knowledge.catalog import Library
-from agent_knowledge.cli import main
-from agent_knowledge.ops import Manager
+from opssum import remote
+from opssum.catalog import Library
+from opssum.cli import main
+from opssum.ops import Manager
 
 
 @pytest.fixture
@@ -17,7 +17,7 @@ def setup(tmp_path, monkeypatch):
     user.mkdir()
     monkeypatch.setenv("HOME", str(user))
     monkeypatch.setenv("USERPROFILE", str(user))
-    for name in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "AGENT_KNOWLEDGE_HOME"):
+    for name in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "OPSSUM_HOME"):
         monkeypatch.delenv(name, raising=False)
     source = tmp_path / "source"
     source.mkdir()
@@ -202,13 +202,13 @@ def test_cli_repository_installs_in_publisher_directory(setup, monkeypatch):
 
 
 def test_tui_adopt_confirmation(setup):
-    from agent_knowledge.tui import AgentKnowledgeApp, ConfirmScreen
+    from opssum.tui import OpssumApp, ConfirmScreen
     from textual.widgets import DataTable
     mgr, source, user = setup
     external = user / ".claude/skills/local"
     external.mkdir(parents=True)
     (external / "SKILL.md").write_text("local source")
-    app = AgentKnowledgeApp(mgr)
+    app = OpssumApp(mgr)
 
     async def run():
         async with app.run_test(size=(120, 35)) as pilot:
@@ -241,14 +241,14 @@ def test_cli_qualified_skill_and_library_remove(setup, monkeypatch):
 
 
 def test_tui_groups_switch_and_delete(setup):
-    from agent_knowledge.tui import AgentKnowledgeApp, ConfirmScreen
+    from opssum.tui import OpssumApp, ConfirmScreen
     from textual.widgets import DataTable
     mgr, source, user = setup
     add(mgr, source)
     add(mgr, source, "other")
     add(mgr, source, "", "legacy")
     assert mgr.install("codex", "global", "skill", "anthropics/pdf").ok
-    app = AgentKnowledgeApp(mgr)
+    app = OpssumApp(mgr)
 
     async def run():
         async with app.run_test(size=(150, 40)) as pilot:

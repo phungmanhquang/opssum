@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-knowledge"
+name = "opssum"
 version = "0.1.0"
 description = "TUI quản lý skills, MCP và instructions dùng chung cho nhiều agent CLI (claude, codex, pi, omp, agy)"
 readme = "README.md"
@@ -16,11 +16,10 @@ dev = ["pytest>=8"]
 build = ["pyinstaller==6.22.3"]
 
 [project.scripts]
-agent-knowledge = "agent_knowledge.cli:entry"
-ak = "agent_knowledge.cli:entry"
+opssum = "opssum.cli:entry"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-agent_knowledge = ["*.tcss"]
+opssum = ["*.tcss"]

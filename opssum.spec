@@ -7,9 +7,9 @@ from PyInstaller.utils.hooks import collect_data_files, copy_metadata
 
 repo = Path(SPEC).resolve().parent
 datas = (
-    collect_data_files("agent_knowledge")
+    collect_data_files("opssum")
     + collect_data_files("textual")
-    + copy_metadata("agent-knowledge")
+    + copy_metadata("opssum")
 )
 
 a = Analysis(
@@ -17,7 +17,7 @@ a = Analysis(
     pathex=[str(repo / "src")],
     binaries=[],
     datas=datas,
-    hiddenimports=["agent_knowledge.tui"],
+    hiddenimports=["opssum.tui"],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -31,7 +31,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="agent-knowledge",
+    name="opssum",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

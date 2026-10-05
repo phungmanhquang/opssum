@@ -3,8 +3,8 @@ import json
 
 import pytest
 
-from agent_knowledge import mcp_marketplace
-from agent_knowledge.ops import Manager, McpConflict
+from opssum import mcp_marketplace
+from opssum.ops import Manager, McpConflict
 
 
 @pytest.fixture
@@ -15,7 +15,7 @@ def env(tmp_path, monkeypatch):
     project.mkdir()
     monkeypatch.setenv("HOME", str(user))
     monkeypatch.setenv("USERPROFILE", str(user))
-    for key in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "AGENT_KNOWLEDGE_HOME"):
+    for key in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "PI_CODING_AGENT_DIR", "OPSSUM_HOME"):
         monkeypatch.delenv(key, raising=False)
     return Manager(tmp_path / "library", project), user, project
 
@@ -86,7 +86,7 @@ def test_external_sync_json_and_toml(env):
     assert mgr.adopt("codex", "global", "mcp", "local").ok
     assert mgr.external_mcps()[0] == []
     assert mgr.states("claude", "global", "mcp")["mine"].status == "installed"
-    assert "# >>> agent-knowledge:local >>>" in codex.read_text()
+    assert "# >>> opssum:local >>>" in codex.read_text()
     assert mgr.remove_mcp("mine").ok
     assert json.loads(claude.read_text()) == {"other": 1, "mcpServers": {}}
 
@@ -125,7 +125,7 @@ def test_legacy_toml_marker_is_recorded_when_project_opened(env):
     assert mgr.save_mcp("alpha/tool", {"command": "node", "args": ["server.js"]}).ok
     path = project / ".codex/config.toml"
     path.parent.mkdir(parents=True)
-    from agent_knowledge.ops import _tblock, render_toml
+    from opssum.ops import _tblock, render_toml
     path.write_text(_tblock("tool", render_toml("tool", mgr.lib.get("mcp", "alpha/tool").spec)))
     mgr.reload()
     assert mgr.mcp_dependents("alpha/tool") == [(path, "tool")]
@@ -134,7 +134,7 @@ def test_legacy_toml_marker_is_recorded_when_project_opened(env):
 
 
 def test_tui_mcp_search_and_edit_modal(env, monkeypatch):
-    from agent_knowledge.tui import AgentKnowledgeApp, McpSearchScreen, McpConfigScreen
+    from opssum.tui import OpssumApp, McpSearchScreen, McpConfigScreen
     from textual.widgets import Input
     mgr, _, _ = env
     listing = mcp_marketplace.Listing("upstash/context7", "Context7", "Docs", "upstash")
@@ -142,7 +142,7 @@ def test_tui_mcp_search_and_edit_modal(env, monkeypatch):
     monkeypatch.setattr(mcp_marketplace, "configuration", lambda x: ("context7", {"command": "npx", "args": ["-y", "@upstash/context7-mcp"]}))
 
     async def run():
-        app = AgentKnowledgeApp(mgr)
+        app = OpssumApp(mgr)
         async with app.run_test(size=(120, 40)) as pilot:
             await pilot.press("2", "i")
             await pilot.pause()

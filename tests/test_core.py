@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from agent_knowledge.ops import Manager
-from agent_knowledge.scaffold import init_library
+from opssum.ops import Manager
+from opssum.scaffold import init_library
 
 
 @pytest.fixture()
@@ -17,9 +17,9 @@ def env(tmp_path, monkeypatch):
     proj.mkdir()
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("USERPROFILE", str(home))
-    for v in ("CODEX_HOME", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR", "AGENT_KNOWLEDGE_HOME"):
+    for v in ("CODEX_HOME", "PI_CODING_AGENT_DIR", "CLAUDE_CONFIG_DIR", "OPSSUM_HOME"):
         monkeypatch.delenv(v, raising=False)
-    lib = home / ".agent-knowledge"
+    lib = home / ".opssum"
     init_library(lib, examples=True)
     return Manager(lib, proj), home, proj
 
@@ -79,7 +79,7 @@ def test_skill_copy_mode(env):
     t = home / ".pi/agent/skills/code-review"
     source = m.lib.get("skill", "code-review").path
     shutil.copytree(source, t)
-    (t / ".agent-knowledge").write_text(str(source))
+    (t / ".opssum").write_text(str(source))
     assert m.install("pi", "global", "skill", "code-review").ok
     assert t.is_symlink() and t.resolve() == source.resolve()
     assert m.uninstall("pi", "global", "skill", "code-review").ok and not t.exists()
@@ -91,7 +91,7 @@ def test_symlink_failure_preserves_legacy_copy(env, monkeypatch):
     source = m.lib.get("skill", "code-review").path
     target = home / ".pi/agent/skills/code-review"
     shutil.copytree(source, target)
-    (target / ".agent-knowledge").write_text(str(source))
+    (target / ".opssum").write_text(str(source))
     (target / "SKILL.md").write_text("local edits")
 
     def denied(*args, **kwargs):
@@ -111,7 +111,7 @@ def test_instruction_block_roundtrip(env):
     assert m.install("claude", "project", "instruction", "coding-style").ok
     assert m.install("claude", "project", "instruction", "git-workflow").ok
     text = f.read_text()
-    assert "đừng xoá dòng này" in text and "agent-knowledge:begin coding-style" in text
+    assert "đừng xoá dòng này" in text and "opssum:begin coding-style" in text
     assert m.states("claude", "project", "instruction")["coding-style"].status == "installed"
     assert m.uninstall("claude", "project", "instruction", "coding-style").ok
     text = f.read_text()
@@ -137,7 +137,7 @@ def test_mcp_json_preserves_other_keys(env):
     assert data["mcpServers"]["context7"]["type"] == "stdio"
     assert data["mcpServers"]["deepwiki"] == {"type": "http", "url": "https://mcp.deepwiki.com/mcp"}
     assert oct(cj.stat().st_mode & 0o777) == "0o600"
-    assert (home / ".claude.json.agent-knowledge.bak").exists()
+    assert (home / ".claude.json.opssum.bak").exists()
     st = m.states("claude", "global", "mcp")
     assert st["mine"].status == "external" and st["context7"].status == "installed"
     assert m.uninstall("claude", "global", "mcp", "context7").ok
@@ -191,11 +191,11 @@ def test_shared_project_paths(env):
 
 
 def test_tui_smoke(env):
-    from agent_knowledge.tui import AgentKnowledgeApp
+    from opssum.tui import OpssumApp
     m, home, _ = env
 
     async def run():
-        app = AgentKnowledgeApp(m)
+        app = OpssumApp(m)
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause()
             table = app.query_one("#matrix")

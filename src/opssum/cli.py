@@ -1,4 +1,4 @@
-"""`agent-knowledge` (alias `ak`): mở TUI, hoặc dùng subcommand để script hoá."""
+"""`opssum`: mở TUI, hoặc dùng subcommand để script hoá."""
 from __future__ import annotations
 
 import argparse
@@ -18,7 +18,7 @@ SYMBOL = {"installed": "●", "outdated": "◐", "absent": "○", "external": "�
 
 def _common() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=False)
-    p.add_argument("--home", help="thư mục library (mặc định ~/.agent-knowledge hoặc $AGENT_KNOWLEDGE_HOME)")
+    p.add_argument("--home", help="thư mục library (mặc định ~/.opssum hoặc $OPSSUM_HOME)")
     p.add_argument("--project", help="thư mục project cho scope project (mặc định: thư mục hiện tại)")
     return p
 
@@ -26,10 +26,10 @@ def _common() -> argparse.ArgumentParser:
 def build_parser() -> argparse.ArgumentParser:
     common = _common()
     ap = argparse.ArgumentParser(
-        prog="agent-knowledge", parents=[common],
+        prog="opssum", parents=[common],
         description="Quản lý skills, MCP, instructions cho nhiều agent CLI từ một library duy nhất.",
     )
-    ap.add_argument("--version", action="version", version=f"agent-knowledge {__version__}")
+    ap.add_argument("--version", action="version", version=f"opssum {__version__}")
     sub = ap.add_subparsers(dest="cmd")
 
     sp = sub.add_parser("init", parents=[common], help="tạo thư mục library")
@@ -182,7 +182,7 @@ def cmd_remove(mgr: Manager, args) -> int:
 
 def cmd_remote(mgr: Manager, repository: str) -> int:
     try:
-        with tempfile.TemporaryDirectory(prefix="ak-skills-") as temp:
+        with tempfile.TemporaryDirectory(prefix="opssum-skills-") as temp:
             print(f"Đang tải {repository}…")
             skills = remote.download(repository, Path(temp) / "repo")
             for i, skill in enumerate(skills, 1):
@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_remove(mgr, args)
         if args.cmd == "install" and any("/" in item and ":" not in item for item in args.items):
             if len(args.items) != 1 or args.agent or args.all_agents or args.scope != "global":
-                raise SystemExit("Dùng ak install owner/repo để nhập vào library; cài cho agent bằng kind:name riêng.")
+                raise SystemExit("Dùng opssum install owner/repo để nhập vào library; cài cho agent bằng kind:name riêng.")
             return cmd_remote(mgr, args.items[0])
         return cmd_apply(mgr, args, args.cmd == "install")
     from .tui import run
@@ -249,7 +249,7 @@ def main(argv: list[str] | None = None) -> int:
 def entry() -> int:
     try:
         return main()
-    except BrokenPipeError:               # vd `ak list | head`
+    except BrokenPipeError:               # vd `opssum list | head`
         return 0
     except KeyboardInterrupt:
         return 130

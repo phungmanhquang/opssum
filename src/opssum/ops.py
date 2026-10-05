@@ -2,7 +2,7 @@
 
 Nguyên tắc an toàn:
   * Skill   : symlink tới library. Chỉ gỡ thứ do mình tạo.
-  * Instr.  : chèn block có marker `<!-- agent-knowledge:begin NAME -->` vào file
+  * Instr.  : chèn block có marker `<!-- opssum:begin NAME -->` vào file
               AGENTS.md / CLAUDE.md / GEMINI.md, không đụng phần còn lại.
   * MCP json: sửa key `mcpServers.<name>`, giữ nguyên mọi key khác, backup trước khi ghi.
   * MCP toml: (codex) chèn block có marker comment, không parse/ghi lại cả file.
@@ -24,8 +24,8 @@ from .catalog import Item, Library, NAME_RE, normalize_mcp
 from .skill_storage import remember_locations, linked_paths, remove_from_library
 from .mcp_storage import bindings as mcp_bindings, record as record_mcp, forget as forget_mcp, _write as write_mcp_bindings
 
-MARKER = ".agent-knowledge"          # file đánh dấu skill được cài bằng copy
-BACKUP_SUFFIX = ".agent-knowledge.bak"
+MARKER = ".opssum"          # file đánh dấu skill được cài bằng copy
+BACKUP_SUFFIX = ".opssum.bak"
 
 
 class OpsError(Exception):
@@ -35,7 +35,7 @@ class OpsError(Exception):
 @dataclass
 class State:
     status: str                      # installed | outdated | absent | external
-    managed: bool = True             # do agent-knowledge tạo/quản lý?
+    managed: bool = True             # do opssum tạo/quản lý?
     removable: bool = True           # có cho phép gỡ không (external không chắc chắn -> confirm)
     detail: str = ""
 
@@ -82,7 +82,7 @@ def atomic_write(path: Path, text: str, backup: bool = True) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if backup and path.exists():
         shutil.copy2(path, path.with_name(path.name + BACKUP_SUFFIX))
-    tmp = path.with_name(path.name + ".tmp-ak")
+    tmp = path.with_name(path.name + ".tmp-opssum")
     tmp.write_text(text, encoding="utf-8")
     if path.exists():
         shutil.copymode(path, tmp)           # giữ quyền (vd ~/.claude.json = 600)
@@ -162,13 +162,13 @@ def skill_install(spec, scope, project, lib, item: Item, mode: str = "symlink", 
     if st and st.status == "installed" and target.is_symlink() and _real(target) == _real(item.path):
         return Result(True, f"{item.name} đã được cài cho {spec.label}")
     if st and st.status == "external" and not st.managed:
-        return Result(False, f"{target} đã tồn tại và không do agent-knowledge quản lý")
+        return Result(False, f"{target} đã tồn tại và không do opssum quản lý")
     if os.path.lexists(target) and st and st.status == "absent" and not replace:
         return Result(False, f"{target} đang dùng bản cùng tên từ nguồn khác; cần xác nhận thay thế.")
     if mode != "symlink":
         return Result(False, "Skills cần dùng symlink để mọi agent nhận cập nhật từ library.")
     d.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(prefix=".ak-link-", dir=d) as temp:
+    with tempfile.TemporaryDirectory(prefix=".opssum-link-", dir=d) as temp:
         link, backup = Path(temp) / "link", Path(temp) / "backup"
         # Create the link before touching the old installation. No copy fallback.
         os.symlink(_real(item.path), link, target_is_directory=True)
@@ -196,7 +196,7 @@ def skill_uninstall(spec, scope, project, lib, name: str) -> Result:
     if not os.path.lexists(target):
         return Result(True, f"{name} chưa được cài cho {spec.label}")
     if not _skill_managed(target, lib.dir_for("skill")):
-        return Result(False, f"{target} không do agent-knowledge tạo — hãy xoá tay nếu chắc chắn")
+        return Result(False, f"{target} không do opssum tạo — hãy xoá tay nếu chắc chắn")
     if item and skill_states(spec, scope, project, lib)[name].status == "absent":
         return Result(True, f"{name} chưa được cài; giữ nguyên bản của nhà phát hành khác.")
     if target.is_symlink():
@@ -234,11 +234,11 @@ def skill_adopt(spec, scope, project, lib, name: str, *, overwrite: bool = False
     dst.parent.mkdir(parents=True, exist_ok=True)
     was_symlink = src.is_symlink()
     # Stage a complete, independent copy before touching either original path.
-    library_temp = Path(tempfile.mkdtemp(prefix=".ak-import-", dir=dst.parent))
+    library_temp = Path(tempfile.mkdtemp(prefix=".opssum-import-", dir=dst.parent))
     agent_temp = None
     keep_backups = False
     try:
-        agent_temp = Path(tempfile.mkdtemp(prefix=".ak-adopt-", dir=directory))
+        agent_temp = Path(tempfile.mkdtemp(prefix=".opssum-adopt-", dir=directory))
         stage, old_library = Path(library_temp) / "new", Path(library_temp) / "old"
         link, old_source = Path(agent_temp) / "link", Path(agent_temp) / "old"
         shutil.copytree(src, stage, symlinks=False)
@@ -281,13 +281,13 @@ def skill_adopt(spec, scope, project, lib, name: str, *, overwrite: bool = False
 
 # ============================================================ INSTRUCTIONS
 _IBLOCK = re.compile(
-    r"<!-- agent-knowledge:begin (?P<name>\S+) -->\n(?P<body>.*?)\n<!-- agent-knowledge:end (?P=name) -->\n?",
+    r"<!-- opssum:begin (?P<name>\S+) -->\n(?P<body>.*?)\n<!-- opssum:end (?P=name) -->\n?",
     re.S,
 )
 
 
 def _iblock(name: str, body: str) -> str:
-    return f"<!-- agent-knowledge:begin {name} -->\n{body.strip()}\n<!-- agent-knowledge:end {name} -->\n"
+    return f"<!-- opssum:begin {name} -->\n{body.strip()}\n<!-- opssum:end {name} -->\n"
 
 
 def instr_states(spec, scope, project, lib) -> dict[str, State]:
@@ -392,13 +392,13 @@ def render_toml(name: str, spec: dict) -> str:
 
 
 _TBLOCK = re.compile(
-    r"# >>> agent-knowledge:(?P<name>\S+) >>>\n(?P<body>.*?)# <<< agent-knowledge:(?P=name) <<<\n?", re.S
+    r"# >>> opssum:(?P<name>\S+) >>>\n(?P<body>.*?)# <<< opssum:(?P=name) <<<\n?", re.S
 )
 _TTABLE = re.compile(r'^\[mcp_servers\.("[^"]+"|[A-Za-z0-9_-]+)\][ \t]*$', re.M)
 
 
 def _tblock(name: str, body: str) -> str:
-    return f"# >>> agent-knowledge:{name} >>>\n{body}# <<< agent-knowledge:{name} <<<\n"
+    return f"# >>> opssum:{name} >>>\n{body}# <<< opssum:{name} <<<\n"
 
 
 def _json_load(path: Path) -> dict:
@@ -542,7 +542,7 @@ def mcp_uninstall(spec, scope, project, lib, name: str, home: Path | None = None
     if leaf not in servers:
         return Result(True, f"{name} chưa được cài cho {spec.label}")
     if home and mcp_bindings(home).get(str(f.resolve()), {}).get(leaf) != name:
-        return Result(False, f"{leaf} không do agent-knowledge quản lý; dùng đồng bộ trước")
+        return Result(False, f"{leaf} không do opssum quản lý; dùng đồng bộ trước")
     del servers[leaf]
     data["mcpServers"] = servers
     atomic_write(f, json.dumps(data, indent=2, ensure_ascii=False) + "\n")

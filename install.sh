@@ -1,12 +1,12 @@
 #!/bin/sh
-# Install/update the latest standalone Agent Knowledge binary (no Python needed).
+# Install/update the latest standalone opssum binary (no Python needed).
 set -eu
 
-say() { printf '[agent-knowledge] %s\n' "$*"; }
-fail() { printf '[agent-knowledge] Lỗi: %s\n' "$*" >&2; exit 1; }
+say() { printf '[opssum] %s\n' "$*"; }
+fail() { printf '[opssum] Lỗi: %s\n' "$*" >&2; exit 1; }
 
 # Maintainer: replace OWNER/REPO before publishing this script.
-repo="${AGENT_KNOWLEDGE_REPO:-OWNER/REPO}"
+repo="${OPSSUM_REPO:-OWNER/REPO}"
 case "$repo" in
   OWNER/REPO) fail "Chưa cấu hình GitHub owner/repo trong install.sh." ;;
   */*) ;;
@@ -30,9 +30,9 @@ case "$(uname -m)" in
   *) fail "CPU chưa có binary phát hành: $(uname -m)." ;;
 esac
 
-asset="agent-knowledge-$os-$arch"
+asset="opssum-$os-$arch"
 base="https://github.com/$repo/releases/latest/download"
-temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/agent-knowledge-install.XXXXXXXX")" || fail "Không tạo được thư mục tạm."
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/opssum-install.XXXXXXXX")" || fail "Không tạo được thư mục tạm."
 trap 'if [ -n "${stage:-}" ] && [ -f "$stage" ]; then rm -f "$stage"; fi; rm -R "$temp_dir" 2>/dev/null || true' 0
 
 say "Đang tải $asset từ GitHub Releases mới nhất..."
@@ -65,7 +65,7 @@ chmod 755 "$temp_dir/$asset"
 bin_dir="$HOME/.local/bin"
 [ ! -L "$bin_dir" ] || fail "$bin_dir là symlink; không tự ghi qua đường dẫn này."
 mkdir -p "$bin_dir"
-destination="$bin_dir/agent-knowledge"
+destination="$bin_dir/opssum"
 [ ! -d "$destination" ] || fail "$destination là thư mục, không thể ghi đè."
 
 if [ -f "$destination" ] && [ ! -L "$destination" ]; then
@@ -83,26 +83,13 @@ fi
 if [ -n "$installed" ] && [ "$installed" = "$actual" ]; then
   say "$asset đã là bản mới nhất; không cần thay binary."
 else
-  stage="$bin_dir/.agent-knowledge-install.$$"
+  stage="$bin_dir/.opssum-install.$$"
   [ ! -e "$stage" ] || fail "File tạm đã tồn tại: $stage"
   cp "$temp_dir/$asset" "$stage"
   chmod 755 "$stage"
   mv -f "$stage" "$destination" || fail "Không thể cập nhật $destination; bản cũ được giữ nguyên."
   stage=
   say "Đã cài/cập nhật: $destination"
-fi
-
-alias_path="$bin_dir/ak"
-if [ -L "$alias_path" ]; then
-  if [ "$(readlink "$alias_path")" = "agent-knowledge" ]; then
-    :
-  else
-    say "Giữ nguyên alias $alias_path vì đang trỏ tới nơi khác."
-  fi
-elif [ -e "$alias_path" ]; then
-  say "Giữ nguyên $alias_path vì đã tồn tại và không do installer tạo."
-else
-  ln -s agent-knowledge "$alias_path"
 fi
 
 case ":${PATH:-}:" in
@@ -117,4 +104,4 @@ case ":${PATH:-}:" in
     printf '  export PATH="$HOME/.local/bin:$PATH"\n'
     ;;
 esac
-say "Chạy: agent-knowledge init --examples  (lần đầu), sau đó agent-knowledge hoặc ak"
+say "Chạy: opssum init --examples  (lần đầu), sau đó opssum"

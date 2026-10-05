@@ -1,12 +1,12 @@
-# ✻ Agent Knowledge
+# ✻ opssum
 
 TUI quản lý **skills**, **MCP servers** và **instructions (AGENT file)** cho nhiều agent CLI
-(`claude`, `codex`, `pi`, `omp`, `agy`, …) từ **một thư mục duy nhất** `~/.agent-knowledge`.
+(`claude`, `codex`, `pi`, `omp`, `agy`, …) từ **một thư mục duy nhất** `~/.opssum`.
 
 ```
-╭─ ✻ Agent Knowledge  v0.1.0 ──────────────────────────────────────────────╮
+╭─ ✻ opssum  v0.1.0 ──────────────────────────────────────────────╮
 │ ✻ Xin chào! Quản lý skills, MCP và instructions cho mọi agent CLI.       │
-│   library  ~/.agent-knowledge                                            │
+│   library  ~/.opssum                                            │
 │   scope    global  (config người dùng)                                   │
 │   items    3 skills · 3 mcp · 2 instructions                             │
 ╰──────────────────────────────────────────────────────────────────────────╯
@@ -20,7 +20,7 @@ TUI quản lý **skills**, **MCP servers** và **instructions (AGENT file)** cho
   my-own             external — chưa có...      ○          ◌        ○        ○        ○
 ```
 
-- **Một nguồn sự thật**: thêm skill/MCP/instruction vào `~/.agent-knowledge` một lần, cài cho agent nào tuỳ bạn.
+- **Một nguồn sự thật**: thêm skill/MCP/instruction vào `~/.opssum` một lần, cài cho agent nào tuỳ bạn.
 - **Ma trận item × agent**: nhìn một lần biết agent nào đang có gì (`claude 3/5`, `codex 2/5`…), bấm `space` để cài/gỡ.
 - **Global hoặc project**: bấm `s` để đổi scope.
 - **Xem riêng từng agent**: bấm `f` để chỉ hiện 1 agent, đúng như kịch bản "hôm sau vào thấy codex có 2 skill → gỡ bớt / cài thêm".
@@ -29,7 +29,7 @@ TUI quản lý **skills**, **MCP servers** và **instructions (AGENT file)** cho
 > **Lưu ý:** logic cài/gỡ được kiểm thử tự động trong môi trường giả lập `HOME`,
 > nhưng **chưa được kiểm chứng với binary thật** của từng agent trên máy bạn. Đường dẫn config của
 > các agent đổi khá thường xuyên — xem mục [Đường dẫn từng agent](#đường-dẫn-từng-agent) và hãy chạy
-> `agent-knowledge agents` để kiểm tra trước khi cài thật. Mọi đường dẫn đều override được.
+> `opssum agents` để kiểm tra trước khi cài thật. Mọi đường dẫn đều override được.
 
 ---
 
@@ -48,29 +48,26 @@ Người phát hành cũng cần thay placeholder `OWNER/REPO` trong `install.sh
 `install.ps1`. Workflow upload hai installer cùng binary lên mỗi GitHub Release;
 lệnh này hoạt động sau khi có release đầu tiên.
 Installer tự nhận Linux/macOS và x64/ARM64, tải binary mới nhất cùng SHA256 từ
-GitHub Releases, xác minh rồi cài vào `~/.local/bin/agent-knowledge` (alias `ak`).
+GitHub Releases, xác minh rồi cài vào `~/.local/bin/opssum`.
 Nếu `~/.local/bin` chưa có trong PATH, installer sẽ in dòng cần thêm vào shell profile.
 Mở terminal mới sau khi cập nhật PATH.
 
 ```sh
-agent-knowledge init --examples   # lần đầu, nếu muốn dữ liệu mẫu
-agent-knowledge                   # mở TUI; có thể dùng ak
+opssum init --examples   # lần đầu, nếu muốn dữ liệu mẫu
+opssum                   # mở TUI
 ```
 
 Để **cập nhật**, chạy lại đúng lệnh `curl ... | sh` ở trên. Installer chỉ thay binary
 sau khi tải, kiểm SHA256 và thử chạy `--version` thành công; không xóa library
-`~/.agent-knowledge`.
+`~/.opssum`.
 
 Để **gỡ cài đặt** trên Linux/macOS:
 
 ```sh
-rm "$HOME/.local/bin/agent-knowledge"
-if [ "$(readlink "$HOME/.local/bin/ak" 2>/dev/null)" = agent-knowledge ]; then
-  rm "$HOME/.local/bin/ak"
-fi
+rm "$HOME/.local/bin/opssum"
 ```
 
-Không xóa `~/.agent-knowledge` nếu muốn giữ skills/MCP đã lưu. Có thể bỏ dòng PATH
+Không xóa `~/.opssum` nếu muốn giữ skills/MCP đã lưu. Có thể bỏ dòng PATH
 khỏi shell profile nếu `~/.local/bin` không còn dùng cho công cụ nào khác.
 
 ### Windows PowerShell
@@ -80,26 +77,21 @@ irm https://github.com/OWNER/REPO/releases/latest/download/install.ps1 | iex
 ```
 
 Thay `OWNER/REPO` như trên. Chạy lại lệnh để cập nhật. Installer hỗ trợ Windows
-x64, kiểm SHA256, lưu `agent-knowledge.exe` và alias `ak.cmd` vào
-`$HOME\.local\bin`, tự thêm thư mục này vào User PATH; mở PowerShell mới rồi chạy
-`agent-knowledge` hoặc `ak`. Để gỡ, xóa hai file này (chỉ xóa `ak.cmd` nếu do
-installer tạo); library vẫn được giữ:
+x64, kiểm SHA256, lưu `opssum.exe` vào `$HOME\.local\bin`, tự thêm thư mục này
+vào User PATH; mở PowerShell mới rồi chạy `opssum`. Để gỡ, xóa file này;
+library vẫn được giữ:
 
 ```powershell
-Remove-Item "$HOME\.local\bin\agent-knowledge.exe"
-$alias = "$HOME\.local\bin\ak.cmd"
-if ((Test-Path $alias) -and ((Get-Content $alias -Raw) -eq "@echo off`r`n`"%~dp0agent-knowledge.exe`" %*`r`n")) {
-    Remove-Item $alias
-}
+Remove-Item "$HOME\.local\bin\opssum.exe"
 ```
 
 ### Binary từ GitHub Releases (không cần Python)
 
-Chọn file đúng OS/CPU trong GitHub Releases: `agent-knowledge-linux-x64`,
-`agent-knowledge-linux-arm64`, `agent-knowledge-macos-x64`,
-`agent-knowledge-macos-arm64` hoặc `agent-knowledge-windows-x64.exe`.
+Chọn file đúng OS/CPU trong GitHub Releases: `opssum-linux-x64`,
+`opssum-linux-arm64`, `opssum-macos-x64`,
+`opssum-macos-arm64` hoặc `opssum-windows-x64.exe`.
 Tải kèm file `.sha256` tương ứng để kiểm tra checksum. Trên Linux/macOS,
-chạy `chmod +x agent-knowledge-<os>-<arch>` sau khi tải file thô, rồi chạy trực tiếp.
+chạy `chmod +x opssum-<os>-<arch>` sau khi tải file thô, rồi chạy trực tiếp.
 Windows chạy file `.exe`. Các binary đã chứa Python runtime và dependencies;
 chúng vẫn cần terminal và những agent CLI/MCP package mà bạn muốn sử dụng.
 
@@ -121,10 +113,10 @@ pip install .
 
 ```bash
 pip install textual
-PYTHONPATH=src python -m agent_knowledge
+PYTHONPATH=src python -m opssum
 ```
 
-Sau khi cài sẽ có 2 lệnh tương đương: `agent-knowledge` và `ak`.
+Sau khi cài, chạy lệnh `opssum`.
 
 ### Phát hành phiên bản mới
 
@@ -149,17 +141,17 @@ Installer tải bản standalone, còn `pipx`/`uv` ở trên là lựa chọn c�
 ## 2. Bắt đầu nhanh
 
 ```bash
-ak init --examples      # tạo ~/.agent-knowledge kèm 3 skill, 3 MCP, 2 instruction mẫu
-ak                      # mở TUI
+opssum init --examples  # tạo ~/.opssum kèm 3 skill, 3 MCP, 2 instruction mẫu
+opssum                  # mở TUI
 ```
 
-Muốn dùng thư mục khác: `export AGENT_KNOWLEDGE_HOME=~/dotfiles/agent-knowledge` hoặc `ak --home <dir>`.
+Muốn dùng thư mục khác: `export OPSSUM_HOME=~/dotfiles/opssum` hoặc `opssum --home <dir>`.
 Có thể để thư mục này trong git (Gitea) để cả team dùng chung.
 
-## 3. Cấu trúc thư mục `.agent-knowledge`
+## 3. Cấu trúc thư mục `.opssum`
 
 ```
-~/.agent-knowledge/
+~/.opssum/
 ├── skills/
 │   ├── anthropics/<skill-name>/SKILL.md  # nhóm theo GitHub owner
 │   └── <skill-name>/SKILL.md            # skill cũ / nhập bằng m: other
@@ -226,9 +218,9 @@ File `.md` thường (frontmatter `description:` tuỳ chọn). Khi cài, nội 
 vào file memory của agent (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`):
 
 ```markdown
-<!-- agent-knowledge:begin coding-style -->
+<!-- opssum:begin coding-style -->
 …nội dung…
-<!-- agent-knowledge:end coding-style -->
+<!-- opssum:end coding-style -->
 ```
 
 Phần còn lại của file (do bạn tự viết) **không bị đụng tới**; gỡ chỉ xoá đúng block đó.
@@ -277,7 +269,7 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 
 ### Ví dụ: 5 skill trong library, cài 3 cho claude và 2 cho codex
 
-1. Mở `ak`, tab `1 Skills`. Header hiện `claude 0/5 · codex 0/5`.
+1. Mở `opssum`, tab `1 Skills`. Header hiện `claude 0/5 · codex 0/5`.
 2. Di chuyển tới cột `claude`, đứng ở 3 skill, bấm `space` mỗi hàng. Sang cột `codex`, làm tương tự với 2 skill.
 3. Hôm sau mở lại: header vẫn hiện `claude 3/5 · codex 2/5` (trạng thái đọc trực tiếp từ đĩa, không có file state riêng).
 4. Bấm `f` cho tới khi chọn `codex` → chỉ còn cột codex + cột "Trạng thái", item đã cài xếp lên đầu. `space` để gỡ hoặc cài thêm skill/MCP khác.
@@ -285,7 +277,7 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 ### Scope global vs project
 
 - **global**: config người dùng (`~/.claude/…`, `~/.codex/…`, …) — áp dụng mọi project.
-- **project**: file trong thư mục project (`.claude/skills`, `.mcp.json`, `AGENTS.md`, …). Mặc định là thư mục bạn đứng khi chạy `ak`;
+- **project**: file trong thư mục project (`.claude/skills`, `.mcp.json`, `AGENTS.md`, …). Mặc định là thư mục bạn đứng khi chạy `opssum`;
   dùng `--project <dir>` hoặc phím `P` để đổi.
 
 ## 5. Cách mỗi loại được cài (và độ an toàn)
@@ -294,14 +286,14 @@ Phần còn lại của file (do bạn tự viết) **không bị đụng tới*
 |---|---|---|
 | **Skill** | `symlink` từ thư mục agent → skill trong library (sửa 1 chỗ, mọi agent cùng thấy). Nếu OS không cho tạo symlink → báo lỗi và giữ bản cũ. Bản copy do tool cũ tạo được chuyển thành symlink khi cài lại | Chỉ gỡ symlink/copy do chính tool tạo. Thư mục skill bạn tự cài → hiện `◌`, **không** xoá |
 | **Instruction** | Chèn block có marker vào file memory | Xoá đúng block |
-| **MCP (JSON)** | Sửa key `mcpServers.<name>`, giữ nguyên mọi key khác; giữ quyền file (vd `~/.claude.json` mode 600); **backup** `<file>.agent-knowledge.bak` trước mỗi lần ghi; file JSON hỏng → từ chối ghi | Xoá key `<name>` do ứng dụng quản lý; server tự khai báo cần đồng bộ bằng `m` trước |
-| **MCP (Codex TOML)** | Chèn block `# >>> agent-knowledge:<name> >>>` vào `config.toml`, không parse/ghi lại cả file | Xoá block. Server bạn khai báo tay trong `config.toml` chỉ đọc, không gỡ từ TUI |
+| **MCP (JSON)** | Sửa key `mcpServers.<name>`, giữ nguyên mọi key khác; giữ quyền file (vd `~/.claude.json` mode 600); **backup** `<file>.opssum.bak` trước mỗi lần ghi; file JSON hỏng → từ chối ghi | Xoá key `<name>` do ứng dụng quản lý; server tự khai báo cần đồng bộ bằng `m` trước |
+| **MCP (Codex TOML)** | Chèn block `# >>> opssum:<name> >>>` vào `config.toml`, không parse/ghi lại cả file | Xoá block. Server bạn khai báo tay trong `config.toml` chỉ đọc, không gỡ từ TUI |
 
 Nguyên tắc chung: **trùng tên với thứ không do tool quản lý → hỏi xác nhận nếu có thể thay an toàn**, không ghi đè ngầm.
 
 ## 6. Đường dẫn từng agent
 
-Tổng hợp từ docs và tài liệu cộng đồng tại thời điểm viết (10/2026). Kiểm tra bằng `ak agents`.
+Tổng hợp từ docs và tài liệu cộng đồng tại thời điểm viết (10/2026). Kiểm tra bằng `opssum agents`.
 
 | Agent | Skills (global / project) | Instructions (global / project) | MCP (global / project) |
 |---|---|---|---|
@@ -326,7 +318,7 @@ Cần biết:
 
 ## 7. Tuỳ biến agent — `agents.json`
 
-Đặt trong `~/.agent-knowledge/agents.json`: sửa đường dẫn agent có sẵn, tắt agent, hoặc thêm agent mới.
+Đặt trong `~/.opssum/agents.json`: sửa đường dẫn agent có sẵn, tắt agent, hoặc thêm agent mới.
 
 ```jsonc
 {
@@ -358,18 +350,18 @@ Các field: `label, root, root_env, binary, skills_global, skills_project, instr
 ## 8. Dùng bằng dòng lệnh (script / CI)
 
 ```bash
-ak init [--examples]
-ak agents                                              # đường dẫn đang dùng cho từng agent
-ak list [skill|mcp|instruction] [-a claude] [-s project] [--json]
+opssum init [--examples]
+opssum agents                                              # đường dẫn đang dùng cho từng agent
+opssum list [skill|mcp|instruction] [-a claude] [-s project] [--json]
 
-ak install   anthropics/skills                                         # chọn skills từ GitHub vào library
-ak install   skill:commit-helper mcp:context7 -a claude -a codex          # global
-ak install   instruction:coding-style --all-agents -s project --project ~/work/myapp
-ak uninstall skill:commit-helper -a codex
-ak install   skill:anthropics/pdf -a codex               # liên kết skill của một nhà phát hành
-ak uninstall skill:anthropics/pdf --library              # xoá khỏi library và gỡ mọi liên kết đã ghi nhận
-ak install   mcp:upstash/context7 -a claude -a codex     # cài cấu hình MCP đã tìm/lưu trong TUI
-ak uninstall mcp:upstash/context7 --library               # xoá MCP và gỡ khỏi agent/project đã ghi nhận
+opssum install   anthropics/skills                                         # chọn skills từ GitHub vào library
+opssum install   skill:commit-helper mcp:context7 -a claude -a codex          # global
+opssum install   instruction:coding-style --all-agents -s project --project ~/work/myapp
+opssum uninstall skill:commit-helper -a codex
+opssum install   skill:anthropics/pdf -a codex               # liên kết skill của một nhà phát hành
+opssum uninstall skill:anthropics/pdf --library              # xoá khỏi library và gỡ mọi liên kết đã ghi nhận
+opssum install   mcp:upstash/context7 -a claude -a codex     # cài cấu hình MCP đã tìm/lưu trong TUI
+opssum uninstall mcp:upstash/context7 --library               # xoá MCP và gỡ khỏi agent/project đã ghi nhận
 ```
 
 Mã thoát `1` nếu có thao tác thất bại.
@@ -382,13 +374,13 @@ GitHub khác theo dạng `owner/repo`. Dùng ↑ ↓ và Space để chọn nhi�
 Nhấn `i` ở skill đang chọn để đọc toàn bộ mô tả, dùng ↑ ↓ để cuộn, Esc hoặc `i`
 để quay lại và giữ nguyên lựa chọn. Skill đã có trong library sẽ được hỏi xác nhận trước khi ghi đè.
 
-CLI: `ak install anthropics/skills`, sau đó nhập các số cách nhau bằng dấu phẩy
+CLI: `opssum install anthropics/skills`, sau đó nhập các số cách nhau bằng dấu phẩy
 (ví dụ `1,3`) hoặc `all`. Enter khi chưa nhập gì sẽ huỷ. Khi hỏi ghi đè, nhập `y`
 để đồng ý; các câu trả lời khác sẽ bỏ qua skill đó.
 
 Cần Git và kết nối GitHub. Tool tải nhánh mặc định, tìm các thư mục có `SKILL.md`
-và chép cả tài nguyên đi kèm vào `~/.agent-knowledge/skills/<owner>/<name>`
-(hoặc library từ `--home` / `AGENT_KNOWLEDGE_HOME`). Sau đó dùng thao tác cài/gỡ
+và chép cả tài nguyên đi kèm vào `~/.opssum/skills/<owner>/<name>`
+(hoặc library từ `--home` / `OPSSUM_HOME`). Sau đó dùng thao tác cài/gỡ
 hiện có để liên kết skill với agent. Ghi đè library cũng cập nhật nội dung mà các
 agent đang liên kết bằng symlink sử dụng. Repository có tên skill trùng nhau hoặc
 skill chứa symlink sẽ báo lỗi.
@@ -430,7 +422,7 @@ Các bản trùng tên và giống nội dung dùng chung bản trong library. N
 khác, ứng dụng hỏi trước khi ghi đè; từ chối sẽ giữ nguyên nguồn đó và tiếp tục
 các dòng khác. Skill đã liên kết với library không được hỏi lại ở lần mở sau.
 
-Phím **`d`** trên skill trong library hoặc `ak uninstall skill:owner/name --library`
+Phím **`d`** trên skill trong library hoặc `opssum uninstall skill:owner/name --library`
 hiện các đường dẫn bị ảnh hưởng và hỏi xác nhận. Đồng ý sẽ gỡ các liên kết ở global
 và các project đã ghi nhận, rồi chuyển skill cùng bản sao các liên kết vào
 `<library>/.trash/<id>/`. `manifest.json` tại đó lưu đường dẫn cũ để khôi phục thủ công.
@@ -459,9 +451,9 @@ theo hướng dẫn riêng của agent/server.
 
 | Triệu chứng | Cách xử lý |
 |---|---|
-| `✘ …JSON không hợp lệ…` | File config của agent bị hỏng/có comment. Sửa tay (tool từ chối ghi để không mất dữ liệu). Bản backup: `<file>.agent-knowledge.bak` |
+| `✘ …JSON không hợp lệ…` | File config của agent bị hỏng/có comment. Sửa tay (tool từ chối ghi để không mất dữ liệu). Bản backup: `<file>.opssum.bak` |
 | Ô hiện `◌` và `space` báo "không thể gỡ" | Thứ đó không do tool tạo. Bấm `m` để nhập vào library (skill/MCP), hoặc xoá tay |
-| Agent không thấy skill vừa cài | Khởi động lại agent; kiểm tra đường dẫn bằng `ak agents`; kiểm tra agent có nằm trong bảng ở mục 6 / override ở mục 7 |
+| Agent không thấy skill vừa cài | Khởi động lại agent; kiểm tra đường dẫn bằng `opssum agents`; kiểm tra agent có nằm trong bảng ở mục 6 / override ở mục 7 |
 | Item không hiện trong TUI | Kiểm tra banner có `⚠ n lỗi`; skill cần `SKILL.md`; tên chỉ gồm `A-Z a-z 0-9 . _ -` |
 | Thêm file vào library lúc TUI đang mở | Bấm `r` |
 | Bảng bị cắt ngang | Mở rộng cửa sổ terminal (≥ 110 cột là đẹp) hoặc dùng `f` để xem từng agent |
@@ -476,12 +468,12 @@ pytest -q            # ops, nhóm skill, symlink, khôi phục khi lỗi và TUI
 Cấu trúc code:
 
 ```
-src/agent_knowledge/
+src/opssum/
 ├── catalog.py    # đọc library (skills/mcp/instructions)
 ├── agents.py     # registry agent + đường dẫn + agents.json
 ├── ops.py        # state / install / uninstall / adopt + Manager
-├── scaffold.py   # ak init
-├── cli.py        # lệnh ak
+├── scaffold.py   # opssum init
+├── cli.py        # lệnh opssum
 ├── tui.py        # giao diện Textual
 └── tui.tcss      # theme (cam #d97757, viền bo tròn, nền tối ấm)
 ```
@@ -490,7 +482,7 @@ src/agent_knowledge/
 
 - Subagent definitions (`.claude/agents/*.md`, `~/.omp/agent/agents`), slash commands, hooks.
 - Tạo/sửa item ngay trong TUI (hiện thêm file bằng editor bên ngoài, bấm `r`).
-- `ak sync` (cài lại toàn bộ theo manifest trong git để dựng máy mới).
+- `opssum sync` (cài lại toàn bộ theo manifest trong git để dựng máy mới).
 - Nhập item `instruction` từ agent; kiểm tra MCP có chạy được (`doctor`).
 
 MIT License.
