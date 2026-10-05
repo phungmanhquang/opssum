@@ -17,7 +17,7 @@ def _locations(home: Path) -> set[Path]:
         return set()
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, list) or any(not isinstance(p, str) or not Path(p).is_absolute() for p in raw):
-        raise ValueError(f"Danh sách đường dẫn skill không hợp lệ: {path}")
+        raise ValueError(f"Invalid skill location list: {path}")
     return {Path(p) for p in raw}
 
 
@@ -29,7 +29,7 @@ def remember_locations(home: Path, locations: list[Path]) -> None:
     home.mkdir(parents=True, exist_ok=True)
     path = home / REGISTRY
     if path.is_symlink():
-        raise ValueError(f"Không ghi registry là symlink: {path}")
+        raise ValueError(f"The registry must not be a symlink: {path}")
     with tempfile.TemporaryDirectory(prefix=".locations-", dir=home) as temp:
         stage = Path(temp) / "registry.json"
         stage.write_text(json.dumps(sorted(map(str, updated)), ensure_ascii=False, indent=2), encoding="utf-8")
@@ -59,15 +59,15 @@ def remove_from_library(home: Path, source: Path, links: list[Path]) -> Path:
     source = source.absolute()
     relative = source.relative_to(root)
     if len(relative.parts) not in (1, 2) or source.is_symlink() or not (source / "SKILL.md").is_file():
-        raise ValueError("Chỉ xoá thư mục skill hợp lệ trong library.")
+        raise ValueError("Only a valid skill directory inside the library can be removed.")
     # Resolve parent aliases too: publisher folders must not redirect outside library.
     source.resolve().relative_to(root)
     for path in links:
         if not _points_to(path, source):
-            raise ValueError(f"Liên kết đã thay đổi, vui lòng tải lại: {path}")
+            raise ValueError(f"The link changed; reload before continuing: {path}")
     trash_root = home / ".trash"
     if trash_root.is_symlink():
-        raise ValueError("Thư mục khôi phục không được là symlink.")
+        raise ValueError("The recovery directory must not be a symlink.")
     trash = trash_root / uuid4().hex
     trash.mkdir(parents=True)
     (trash / "manifest.json").write_text(json.dumps({

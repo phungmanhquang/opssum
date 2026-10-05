@@ -26,7 +26,7 @@ class RemoteSkill:
 
 def download(repository: str, destination: Path) -> list[RemoteSkill]:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9][A-Za-z0-9._-]*", repository):
-        raise ValueError("Repository cần có dạng owner/repo, ví dụ anthropics/skills.")
+        raise ValueError("Repository must use the owner/repo format, for example anthropics/skills.")
     try:
         subprocess.run(
             ["git", "-c", f"core.hooksPath={os.devnull}", "clone", "--depth", "1", "--",
@@ -35,11 +35,11 @@ def download(repository: str, destination: Path) -> list[RemoteSkill]:
             env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
     except FileNotFoundError as exc:
-        raise ValueError("Cần cài Git để tải skills từ GitHub.") from exc
+        raise ValueError("Git is required to download skills from GitHub.") from exc
     except subprocess.TimeoutExpired as exc:
-        raise ValueError("Tải repository quá thời gian chờ (120 giây).") from exc
+        raise ValueError("Repository download timed out (120 seconds).") from exc
     except subprocess.CalledProcessError as exc:
-        raise ValueError("Không tải được repository. Kiểm tra tên, quyền truy cập và kết nối GitHub.") from exc
+        raise ValueError("Could not download the repository. Check its name, access permissions, and GitHub connection.") from exc
     owner, repo = repository.split("/")
     return discover(destination, root_name=repo, publisher=owner.lower())
 
@@ -54,16 +54,16 @@ def discover(root: Path, *, root_name: str | None = None, publisher: str = "") -
         path = Path(directory)
         name = root_name if path == root and root_name else path.name
         if not NAME_RE.fullmatch(name):
-            raise ValueError(f"Tên skill không hợp lệ: {name}")
+            raise ValueError(f"Invalid skill name: {name}")
         if any(p.is_symlink() for p in path.rglob("*")):
-            raise ValueError(f"Skill {path.name} chứa symlink; không thể nhập an toàn.")
+            raise ValueError(f"Skill {path.name} contains a symlink and cannot be imported safely.")
         if name.casefold() in names:
-            raise ValueError(f"Repository có nhiều skill trùng tên: {name}")
+            raise ValueError(f"Repository contains multiple skills with the same name: {name}")
         names.add(name.casefold())
         meta, _ = parse_frontmatter((path / "SKILL.md").read_text(encoding="utf-8", errors="replace"))
         found.append(RemoteSkill(name, path, " ".join(meta.get("description", "").split()), publisher))
     if not found:
-        raise ValueError("Repository không có skill chứa SKILL.md.")
+        raise ValueError("The repository contains no skill with SKILL.md.")
     return sorted(found, key=lambda s: s.name.casefold())
 
 
@@ -74,22 +74,22 @@ def exists(home: Path, skill: RemoteSkill | str) -> bool:
 
 def install(home: Path, skill: RemoteSkill, *, overwrite: bool = False) -> None:
     if not NAME_RE.fullmatch(skill.name):
-        raise ValueError("Tên skill không hợp lệ.")
+        raise ValueError("Invalid skill name.")
     if skill.publisher and not NAME_RE.fullmatch(skill.publisher):
-        raise ValueError("Nhà phát hành không hợp lệ.")
+        raise ValueError("Invalid publisher name.")
     root = home / "skills"
     if skill.publisher:
         if (root / skill.publisher / "SKILL.md").is_file():
-            raise ValueError(f"Đường dẫn nhóm {skill.publisher} đang là một skill cũ; cần đổi tên trước.")
+            raise ValueError(f"Publisher path {skill.publisher} is an existing legacy skill; rename it first.")
         if (root / skill.publisher).is_symlink():
-            raise ValueError("Thư mục nhà phát hành không được là symlink.")
+            raise ValueError("The publisher directory must not be a symlink.")
         root /= skill.publisher
     root.mkdir(parents=True, exist_ok=True)
     target = root / skill.name
     if target.is_dir() and not (target / "SKILL.md").is_file():
-        raise ValueError(f"{target} đang là thư mục nhóm hoặc dữ liệu khác, không thể ghi đè bằng skill.")
+        raise ValueError(f"{target} is a publisher directory or other data and cannot be overwritten by a skill.")
     if exists(home, skill) and not overwrite:
-        raise FileExistsError(f"Skill {skill.name} đã tồn tại; cần xác nhận ghi đè.")
+        raise FileExistsError(f"Skill {skill.name} already exists; overwrite confirmation is required.")
     # Stage on the same filesystem; restore the original if replacement fails.
     with tempfile.TemporaryDirectory(prefix=".install-", dir=root) as temp:
         stage, backup = Path(temp) / "new", Path(temp) / "old"
@@ -97,7 +97,7 @@ def install(home: Path, skill: RemoteSkill, *, overwrite: bool = False) -> None:
         had_old = exists(home, skill)
         if had_old:
             if not overwrite:
-                raise FileExistsError(f"Skill {skill.name} đã tồn tại.")
+                raise FileExistsError(f"Skill {skill.name} already exists.")
             target.rename(backup)
         try:
             stage.rename(target)

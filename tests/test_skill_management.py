@@ -154,7 +154,7 @@ def test_delete_failure_rolls_back_links(setup, monkeypatch):
 def test_group_folder_cannot_be_overwritten(setup):
     mgr, source, _ = setup
     add(mgr, source)
-    with pytest.raises(ValueError, match="thư mục nhóm"):
+    with pytest.raises(ValueError, match="publisher directory"):
         remote.install(mgr.home, remote.RemoteSkill("anthropics", source, ""), overwrite=True)
     assert (mgr.home / "skills/anthropics/pdf/SKILL.md").is_file()
 

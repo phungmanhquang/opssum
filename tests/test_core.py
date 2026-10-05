@@ -43,7 +43,7 @@ def test_skill_install_uninstall_per_agent(env):
     x = m.states("codex", "global", "skill")
     assert sum(s.status == "installed" for s in c.values()) == 3
     assert sum(s.status == "installed" for s in x.values()) == 2
-    # gỡ 1 skill của codex, claude không bị ảnh hưởng
+    # uninstall one Codex skill; Claude is unaffected
     assert m.uninstall("codex", "global", "skill", "code-review").ok
     assert m.states("codex", "global", "skill")["code-review"].status == "absent"
     assert m.states("claude", "global", "skill")["code-review"].status == "installed"
@@ -58,7 +58,7 @@ def test_skill_external_not_touched(env):
     assert st.status == "external" and not st.removable
     assert not m.uninstall("codex", "global", "skill", "my-own").ok
     assert mine.exists()
-    # adopt vào library
+    # adopt into the library
     assert m.adopt("codex", "global", "skill", "my-own").ok
     assert m.lib.get("skill", "my-own")
 
@@ -107,18 +107,18 @@ def test_symlink_failure_preserves_legacy_copy(env, monkeypatch):
 def test_instruction_block_roundtrip(env):
     m, home, proj = env
     f = proj / "CLAUDE.md"
-    f.write_text("# Của tôi\n\nđừng xoá dòng này\n")
+    f.write_text("# My content\n\ndo not remove this line\n")
     assert m.install("claude", "project", "instruction", "coding-style").ok
     assert m.install("claude", "project", "instruction", "git-workflow").ok
     text = f.read_text()
-    assert "đừng xoá dòng này" in text and "opssum:begin coding-style" in text
+    assert "do not remove this line" in text and "opssum:begin coding-style" in text
     assert m.states("claude", "project", "instruction")["coding-style"].status == "installed"
     assert m.uninstall("claude", "project", "instruction", "coding-style").ok
     text = f.read_text()
-    assert "coding-style" not in text and "git-workflow" in text and "đừng xoá dòng này" in text
-    # library đổi -> outdated
+    assert "coding-style" not in text and "git-workflow" in text and "do not remove this line" in text
+    # library changes -> outdated
     lib_file = m.lib.get("instruction", "git-workflow").path
-    lib_file.write_text(lib_file.read_text() + "\n- thêm dòng mới\n")
+    lib_file.write_text(lib_file.read_text() + "\n- add a new line\n")
     m.reload()
     assert m.states("claude", "project", "instruction")["git-workflow"].status == "outdated"
     assert m.install("claude", "project", "instruction", "git-workflow").ok
@@ -199,8 +199,8 @@ def test_tui_smoke(env):
         async with app.run_test(size=(150, 40)) as pilot:
             await pilot.pause()
             table = app.query_one("#matrix")
-            assert table.row_count == 4  # 3 skills + divider Chưa phân nhóm
-            # cursor bắt đầu ở cột agent đầu tiên (claude)
+            assert table.row_count == 4  # 3 skills + the other divider
+            # cursor starts in the first agent column (Claude)
             await pilot.press("space")
             await pilot.pause()
             assert (home / ".claude/skills/code-review").is_symlink()
@@ -210,7 +210,7 @@ def test_tui_smoke(env):
             await pilot.press("A")
             await pilot.pause()
             assert (home / ".pi/agent/skills/commit-helper").is_symlink()
-            await pilot.press("down", "left", "enter")   # vue2-conventions, cột claude: Enter cũng toggle
+            await pilot.press("down", "left", "enter")   # vue2-conventions, Claude column: Enter also toggles
             await pilot.pause()
             assert (home / ".claude/skills/vue2-conventions").is_symlink()
             await pilot.press("up", "X", "y")

@@ -26,7 +26,7 @@ TARGETS = {
 def run_checked(*args: str) -> str:
     result = subprocess.run(args, capture_output=True, text=True)
     if result.returncode:
-        raise RuntimeError(f"Smoke test thất bại: {' '.join(args)}\n{result.stdout}\n{result.stderr}")
+        raise RuntimeError(f"Smoke test failed: {' '.join(args)}\n{result.stdout}\n{result.stderr}")
     return result.stdout.strip()
 
 
@@ -38,12 +38,12 @@ def main() -> int:
     expected_os, expected_arches = TARGETS[target]
     actual_os, actual_arch = platform.system(), platform.machine()
     if actual_os != expected_os or actual_arch not in expected_arches:
-        raise RuntimeError(f"Runner không đúng kiến trúc: {actual_os}/{actual_arch}; cần {target}")
+        raise RuntimeError(f"Runner architecture mismatch: {actual_os}/{actual_arch}; expected {target}")
 
     root = Path(__file__).resolve().parents[1]
     binary = root / "dist" / ("opssum.exe" if os.name == "nt" else "opssum")
     if not binary.is_file():
-        raise FileNotFoundError(f"PyInstaller chưa tạo binary: {binary}")
+        raise FileNotFoundError(f"PyInstaller did not create the binary: {binary}")
     asset_name = f"opssum-{target}" + (".exe" if os.name == "nt" else "")
     assets = root / "dist" / "release-assets"
     assets.mkdir(parents=True, exist_ok=True)
@@ -55,13 +55,13 @@ def main() -> int:
     version = run_checked(str(asset), "--version")
     expected_version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
     if version != f"opssum {expected_version}":
-        raise RuntimeError(f"Binary trả về version {version!r}; cần opssum {expected_version}")
+        raise RuntimeError(f"Binary returned version {version!r}; expected opssum {expected_version}")
     with tempfile.TemporaryDirectory(prefix="opssum-release-smoke-") as temp:
         home = Path(temp) / "library"
         run_checked(str(asset), "init", "--home", str(home), "--examples")
         data = json.loads(run_checked(str(asset), "list", "--home", str(home), "--json"))
         if not data.get("skill") or not data.get("mcp"):
-            raise RuntimeError("Binary không đọc được library mẫu.")
+            raise RuntimeError("The binary could not read the sample library.")
 
     with asset.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()

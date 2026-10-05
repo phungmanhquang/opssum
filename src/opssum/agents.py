@@ -1,8 +1,8 @@
-"""Registry các agent CLI và vị trí file config của từng agent.
+"""Registry of agent CLIs and their configuration file locations.
 
-Đường dẫn dưới đây dựa trên docs/tài liệu cộng đồng tại thời điểm viết (10/2026).
-Agent CLI đổi layout khá thường xuyên -> mọi đường dẫn đều override được qua
-`<library>/agents.json` (xem README).
+The paths below are based on documentation and community references as of 2026-10.
+Agent CLI layouts change frequently, so every path can be overridden through
+`<library>/agents.json` (see the README).
 """
 from __future__ import annotations
 
@@ -17,9 +17,9 @@ from pathlib import Path
 class AgentSpec:
     id: str
     label: str
-    root: str                         # thư mục config global mặc định
+    root: str                         # default global configuration directory
     binary: str = ""
-    root_env: str = ""                # biến môi trường override `root`
+    root_env: str = ""                # environment variable overriding `root`
     skills_global: str = "{root}/skills"
     skills_project: str = ""
     instr_global: str = "{root}/AGENTS.md"
@@ -62,7 +62,7 @@ DEFAULT_AGENTS: list[AgentSpec] = [
         instr_global="{root}/CLAUDE.md", instr_project="CLAUDE.md",
         mcp_global="~/.claude.json", mcp_project=".mcp.json",
         mcp_format="json", mcp_style="claude",
-        notes="MCP global nằm trong ~/.claude.json (user scope)",
+        notes="Global MCP is stored in ~/.claude.json (user scope)",
     ),
     AgentSpec(
         id="codex", label="codex", binary="codex",
@@ -71,7 +71,7 @@ DEFAULT_AGENTS: list[AgentSpec] = [
         instr_global="{root}/AGENTS.md", instr_project="AGENTS.md",
         mcp_global="{root}/config.toml", mcp_project=".codex/config.toml",
         mcp_format="toml", mcp_style="codex",
-        notes="Project skills ở .agents/skills (dùng chung với agent khác); MCP project chỉ chạy khi project được trust",
+        notes="Project skills use .agents/skills (shared with other agents); project MCP works only in trusted projects",
     ),
     AgentSpec(
         id="pi", label="pi", binary="pi",
@@ -80,7 +80,7 @@ DEFAULT_AGENTS: list[AgentSpec] = [
         instr_global="{root}/AGENTS.md", instr_project="AGENTS.md",
         mcp_global="{root}/mcp.json", mcp_project=".pi/mcp.json",
         mcp_format="json", mcp_style="generic",
-        notes="Pi không có MCP native: cần extension pi-mcp-adapter để đọc mcp.json",
+        notes="Pi has no native MCP support; the pi-mcp-adapter extension is required to read mcp.json",
     ),
     AgentSpec(
         id="omp", label="omp", binary="omp",
@@ -98,13 +98,13 @@ DEFAULT_AGENTS: list[AgentSpec] = [
         instr_global="~/.gemini/GEMINI.md", instr_project="AGENTS.md",
         mcp_global="{root}/mcp_config.json", mcp_project=".agents/mcp_config.json",
         mcp_format="json", mcp_style="agy",
-        notes="Antigravity CLI; remote MCP dùng field serverUrl",
+        notes="Antigravity CLI; remote MCP uses the serverUrl field",
     ),
 ]
 
 
 def load_agents(home: Path) -> dict[str, AgentSpec]:
-    """Registry mặc định + override từ `<home>/agents.json`.
+    """Load the default registry plus overrides from `<home>/agents.json`.
 
     {
       "disabled": ["agy"],

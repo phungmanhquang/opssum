@@ -76,7 +76,7 @@ def test_install_update_and_checksum_failure(tmp_path, system, architecture, ass
     assert destination.read_bytes() == first
     assert "PATH" in result.stdout
 
-    assert "đã là bản mới nhất" in install().stdout
+    assert "already up to date" in install().stdout
     second = _asset(assets, asset, "1.0.1")
     assert install().returncode == 0
     assert destination.read_bytes() == second
@@ -84,7 +84,7 @@ def test_install_update_and_checksum_failure(tmp_path, system, architecture, ass
     _asset(assets, asset, "1.0.2", bad_checksum=True)
     failed = install()
     assert failed.returncode != 0
-    assert "SHA256 không khớp" in failed.stderr
+    assert "SHA256 mismatch" in failed.stderr
     assert destination.read_bytes() == second
 
 
@@ -95,4 +95,4 @@ def test_placeholder_fails_before_download(tmp_path):
     env["OPSSUM_REPO"] = "OWNER/REPO"
     result = subprocess.run(["sh", str(INSTALLER)], env=env, capture_output=True, text=True)
     assert result.returncode != 0
-    assert "GitHub owner/repo chưa được cấu hình hợp lệ" in result.stderr
+    assert "GitHub owner/repo is not configured correctly" in result.stderr

@@ -32,18 +32,18 @@ def _get(path: str) -> bytes:
     with urlopen(request, timeout=15) as response:
         data = response.read(MAX_RESPONSE + 1)
     if len(data) > MAX_RESPONSE:
-        raise ValueError("Phản hồi từ Claude Marketplaces quá lớn.")
+        raise ValueError("The Claude Marketplaces response is too large.")
     return data
 
 
 def search(query: str) -> list[Listing]:
     query = query.strip()
     if not query:
-        raise ValueError("Nhập từ khóa tìm MCP.")
+        raise ValueError("Enter an MCP search term.")
     raw = json.loads(_get("/api/listing-search?type=mcp&q=" + quote(query)).decode("utf-8"))
     items = raw.get("items", [])
     if not isinstance(items, list):
-        raise ValueError("Danh sách MCP từ marketplace không hợp lệ.")
+        raise ValueError("The MCP marketplace returned an invalid list.")
     found = []
     for row in items:
         if not isinstance(row, dict):
@@ -64,7 +64,7 @@ def parse_command(command: str) -> tuple[str, dict]:
     """Parse `claude mcp add` syntax without invoking a shell."""
     words = shlex.split(command)
     if words[:3] != ["claude", "mcp", "add"]:
-        raise ValueError("Marketplace không cung cấp lệnh `claude mcp add` hợp lệ.")
+        raise ValueError("The marketplace did not provide a valid `claude mcp add` command.")
     args = words[3:]
     if "--" in args:
         split = args.index("--")
@@ -79,7 +79,7 @@ def parse_command(command: str) -> tuple[str, dict]:
         word = options[i]
         if word in ("--transport", "-t", "--env", "-e", "--header", "-H", "--scope", "-s"):
             if i + 1 >= len(options):
-                raise ValueError(f"Thiếu giá trị cho {word}.")
+                    raise ValueError(f"Missing value for {word}.")
             value = options[i + 1]
             i += 2
             if word in ("--transport", "-t"):
@@ -87,31 +87,31 @@ def parse_command(command: str) -> tuple[str, dict]:
             elif word in ("--env", "-e"):
                 key, sep, val = value.partition("=")
                 if not sep or not key:
-                    raise ValueError("Biến môi trường MCP không hợp lệ.")
+                    raise ValueError("Invalid MCP environment variable.")
                 env[key] = val
             elif word in ("--header", "-H"):
                 key, sep, val = value.partition(":")
                 if not sep or not key.strip():
-                    raise ValueError("HTTP header MCP không hợp lệ.")
+                    raise ValueError("Invalid MCP HTTP header.")
                 headers[key.strip()] = val.strip()
             continue
         if word.startswith("-"):
-            raise ValueError(f"Tùy chọn MCP chưa hỗ trợ: {word}")
+            raise ValueError(f"Unsupported MCP option: {word}")
         if not name:
             name = word
         elif not url:
             url = word
         else:
-            raise ValueError("Lệnh MCP có tham số không rõ nghĩa.")
+            raise ValueError("The MCP command contains an unrecognized argument.")
         i += 1
     if not NAME_RE.fullmatch(name):
-        raise ValueError("Tên server MCP không hợp lệ.")
+        raise ValueError("Invalid MCP server name.")
     if executable:
         raw = {"command": executable[0], "args": executable[1:], "env": env}
     elif url and transport in ("http", "sse"):
         raw = {"url": url, "transport": transport, "headers": headers}
     else:
-        raise ValueError("Không tìm được command hoặc URL của MCP; hãy nhập cấu hình thủ công.")
+        raise ValueError("Could not find an MCP command or URL; enter the configuration manually.")
     spec, _ = normalize_mcp(raw)
     return name, spec
 
@@ -142,4 +142,4 @@ def configuration(listing: Listing) -> tuple[str, dict]:
             return parse_command(html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip())
         except ValueError:
             continue
-    raise ValueError("Không đọc được cấu hình cài MCP từ trang này; có thể nhập JSON thủ công trong modal.")
+    raise ValueError("Could not read MCP installation configuration from this page; enter JSON manually in the dialog.")

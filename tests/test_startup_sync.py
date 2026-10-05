@@ -199,7 +199,7 @@ def test_rollback_failure_retains_original_backup(env, monkeypatch):
     monkeypatch.setattr(Path, "rename", fail_link_and_restore)
     result = mgr.adopt("claude", "global", "skill", "pdf")
     assert not result.ok
-    assert "Dữ liệu được giữ tại" in result.msg
+    assert "Data was kept at" in result.msg
     backups = list(source.parent.glob(".opssum-adopt-*/old/SKILL.md"))
     assert len(backups) == 1
     assert backups[0].read_text() == "must survive"

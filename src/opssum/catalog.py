@@ -1,12 +1,12 @@
-"""Đọc thư mục library `.opssum`.
+"""Read the `.opssum` library directory.
 
-Cấu trúc:
+Layout:
 
     .opssum/
     ├── skills/[<publisher>/]<name>/SKILL.md
-    ├── mcp/[<publisher>/]<name>.json # 1 server / file (hoặc dạng {"mcpServers": {...}})
-    ├── instructions/<name>.md        # mảnh AGENTS.md / CLAUDE.md
-    └── agents.json                   # (tuỳ chọn) override đường dẫn của từng agent
+    ├── mcp/[<publisher>/]<name>.json # one server per file (or {"mcpServers": {...}})
+    ├── instructions/<name>.md        # AGENTS.md / CLAUDE.md fragment
+    └── agents.json                   # optional per-agent path overrides
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class Item:
     description: str = ""
     path: Path | None = None          # skill dir / instruction file / mcp file
     spec: dict | None = None          # mcp: normalized spec
-    body: str = ""                    # instruction: nội dung (đã bỏ frontmatter)
+    body: str = ""                    # instruction body (front matter removed)
     publisher: str = ""
 
     @property
@@ -86,34 +86,34 @@ def _squash(s: str) -> str:
 
 
 def normalize_mcp(raw: dict) -> tuple[dict, str]:
-    """Chuẩn hoá 1 định nghĩa MCP server về dạng nội bộ.
+    """Normalize one MCP server definition into the internal representation.
 
     stdio  -> {"command", "args", "env"}
     remote -> {"url", "transport": "http"|"sse", "headers"}
     """
     if not isinstance(raw, dict):
-        raise ValueError("định nghĩa MCP phải là object JSON")
+        raise ValueError("MCP definition must be a JSON object")
     desc = _squash(str(raw.get("description", "")))
     url = raw.get("url") or raw.get("serverUrl") or raw.get("httpUrl")
     if url:
         if not isinstance(url, str) or not url.startswith(("https://", "http://")):
-            raise ValueError("URL MCP phải bắt đầu bằng https:// hoặc http://")
+            raise ValueError("MCP URL must start with https:// or http://")
         t = str(raw.get("transport") or raw.get("type") or "http").lower()
         spec: dict = {"url": str(url), "transport": "sse" if t == "sse" else "http"}
         if raw.get("headers"):
             if not isinstance(raw["headers"], dict):
-                raise ValueError("headers MCP phải là object JSON")
+                raise ValueError("MCP headers must be a JSON object")
             spec["headers"] = {str(k): str(v) for k, v in dict(raw["headers"]).items()}
     elif raw.get("command"):
         if not isinstance(raw["command"], str) or not isinstance(raw.get("args", []), list):
-            raise ValueError("command MCP phải là chuỗi và args phải là danh sách")
+            raise ValueError("MCP command must be a string and args must be a list")
         spec = {"command": str(raw["command"]), "args": [str(a) for a in raw.get("args", [])]}
         if raw.get("env"):
             if not isinstance(raw["env"], dict):
-                raise ValueError("env MCP phải là object JSON")
+                raise ValueError("MCP env must be a JSON object")
             spec["env"] = {str(k): str(v) for k, v in dict(raw["env"]).items()}
     else:
-        raise ValueError("cần `command` (stdio) hoặc `url` (remote)")
+        raise ValueError("either `command` (stdio) or `url` (remote) is required")
     return spec, desc
 
 
@@ -159,7 +159,7 @@ class Library:
                 if d.name.startswith(".") or not d.is_dir():
                     continue
                 if not NAME_RE.fullmatch(d.name):
-                    self.errors.append(f"{d}: tên thư mục không hợp lệ")
+                    self.errors.append(f"{d}: invalid directory name")
                     continue
                 md = d / "SKILL.md"
                 if md.is_file():
@@ -181,7 +181,7 @@ class Library:
                 continue
             name = f.stem
             if not NAME_RE.match(name):
-                self.errors.append(f"instructions/{f.name}: tên file không hợp lệ")
+                self.errors.append(f"instructions/{f.name}: invalid file name")
                 continue
             meta, body = parse_frontmatter(f.read_text(encoding="utf-8", errors="replace"))
             body = body.strip()
@@ -206,7 +206,7 @@ class Library:
                 continue
             publisher = f.parent.name if f.parent != root else ""
             if publisher and not NAME_RE.fullmatch(publisher):
-                self.errors.append(f"mcp/{publisher}: tên nhà phát hành không hợp lệ")
+                self.errors.append(f"mcp/{publisher}: invalid publisher name")
                 continue
             try:
                 raw = json.loads(f.read_text(encoding="utf-8"))
@@ -215,12 +215,12 @@ class Library:
                 continue
             entries: dict[str, dict]
             if isinstance(raw, dict) and isinstance(raw.get("mcpServers"), dict):
-                entries = raw["mcpServers"]          # dạng copy-paste từ README của MCP server
+                entries = raw["mcpServers"]          # common copy-paste format from an MCP server README
             else:
                 entries = {f.stem: raw}
             for name, body in entries.items():
                 if not isinstance(name, str) or not NAME_RE.fullmatch(name):
-                    self.errors.append(f"mcp/{f.name}: tên server `{name}` không hợp lệ")
+                    self.errors.append(f"mcp/{f.name}: invalid server name `{name}`")
                     continue
                 try:
                     spec, desc = normalize_mcp(body)

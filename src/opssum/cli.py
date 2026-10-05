@@ -1,4 +1,4 @@
-"""`opssum`: mở TUI, hoặc dùng subcommand để script hoá."""
+"""`opssum`: launch the TUI or use scriptable subcommands."""
 from __future__ import annotations
 
 import argparse
@@ -18,8 +18,8 @@ SYMBOL = {"installed": "●", "outdated": "◐", "absent": "○", "external": "�
 
 def _common() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(add_help=False)
-    p.add_argument("--home", help="thư mục library (mặc định ~/.opssum hoặc $OPSSUM_HOME)")
-    p.add_argument("--project", help="thư mục project cho scope project (mặc định: thư mục hiện tại)")
+    p.add_argument("--home", help="library directory (default: ~/.opssum or $OPSSUM_HOME)")
+    p.add_argument("--project", help="project directory for project scope (default: current directory)")
     return p
 
 
@@ -27,30 +27,30 @@ def build_parser() -> argparse.ArgumentParser:
     common = _common()
     ap = argparse.ArgumentParser(
         prog="opssum", parents=[common],
-        description="Quản lý skills, MCP, instructions cho nhiều agent CLI từ một library duy nhất.",
+        description="Manage skills, MCP servers, and instructions for multiple agent CLIs from one library.",
     )
     ap.add_argument("--version", action="version", version=f"opssum {__version__}")
     sub = ap.add_subparsers(dest="cmd")
 
-    sp = sub.add_parser("init", parents=[common], help="tạo thư mục library")
-    sp.add_argument("--examples", action="store_true", help="kèm skill/mcp/instruction mẫu")
+    sp = sub.add_parser("init", parents=[common], help="create the library directory")
+    sp.add_argument("--examples", action="store_true", help="include sample skills, MCP servers, and instructions")
 
-    sub.add_parser("agents", parents=[common], help="liệt kê agent + đường dẫn đang dùng")
+    sub.add_parser("agents", parents=[common], help="list agents and their active paths")
 
-    sp = sub.add_parser("list", parents=[common], help="liệt kê library và trạng thái cài đặt")
+    sp = sub.add_parser("list", parents=[common], help="list library items and installation status")
     sp.add_argument("kind", nargs="?", choices=sorted(set(KIND_ALIASES)), help="skill | mcp | instruction")
-    sp.add_argument("-a", "--agent", action="append", help="chỉ hiện agent này (lặp được)")
+    sp.add_argument("-a", "--agent", action="append", help="show only this agent (repeatable)")
     sp.add_argument("-s", "--scope", choices=("global", "project"), default="global")
     sp.add_argument("--json", action="store_true")
 
-    for name, hlp in (("install", "cài item cho agent"), ("uninstall", "gỡ item khỏi agent")):
+    for name, hlp in (("install", "install an item for an agent"), ("uninstall", "uninstall an item from an agent")):
         sp = sub.add_parser(name, parents=[common], help=hlp)
-        sp.add_argument("items", nargs="+", help="kind:name; install cũng nhận GitHub owner/repo để nhập skills vào library")
-        sp.add_argument("-a", "--agent", action="append", help="agent đích (lặp được)")
-        sp.add_argument("--all-agents", action="store_true", help="áp dụng cho mọi agent")
+        sp.add_argument("items", nargs="+", help="kind:name; install also accepts a GitHub owner/repo to import skills")
+        sp.add_argument("-a", "--agent", action="append", help="target agent (repeatable)")
+        sp.add_argument("--all-agents", action="store_true", help="apply to every agent")
         sp.add_argument("-s", "--scope", choices=("global", "project"), default="global")
         if name == "uninstall":
-            sp.add_argument("--library", action="store_true", help="xoá skill/MCP khỏi library và gỡ khỏi các agent đã ghi nhận")
+            sp.add_argument("--library", action="store_true", help="remove a skill/MCP from the library and all recorded agents")
     return ap
 
 
@@ -60,10 +60,10 @@ def _manager(args) -> Manager:
 
 def _parse_ref(ref: str) -> tuple[str, str]:
     if ":" not in ref:
-        raise SystemExit(f"'{ref}' sai định dạng, cần kind:name (vd skill:commit-helper)")
+        raise SystemExit(f"'{ref}' has an invalid format; expected kind:name (for example skill:commit-helper)")
     k, n = ref.split(":", 1)
     if k not in KIND_ALIASES:
-        raise SystemExit(f"kind '{k}' không hợp lệ (skill | mcp | instruction)")
+        raise SystemExit(f"invalid kind '{k}' (expected skill | mcp | instruction)")
     return KIND_ALIASES[k], n
 
 
@@ -71,16 +71,16 @@ def _targets(mgr: Manager, args) -> list[str]:
     if args.all_agents:
         return list(mgr.agents)
     if not args.agent:
-        raise SystemExit("cần --agent <id> (lặp được) hoặc --all-agents")
+        raise SystemExit("provide --agent <id> (repeatable) or --all-agents")
     bad = [a for a in args.agent if a not in mgr.agents]
     if bad:
-        raise SystemExit(f"agent không tồn tại: {', '.join(bad)}  (có: {', '.join(mgr.agents)})")
+        raise SystemExit(f"unknown agent: {', '.join(bad)}  (available: {', '.join(mgr.agents)})")
     return args.agent
 
 
 def cmd_agents(mgr: Manager) -> int:
     for a in mgr.agent_list():
-        print(f"{'✔' if a.detected() else '·'} {a.id:<7} {'(đã cài)' if a.detected() else '(không thấy binary)'}")
+        print(f"{'✔' if a.detected() else '·'} {a.id:<7} {'(installed)' if a.detected() else '(binary not found)'}")
         for scope in ("global", "project"):
             for what, lab in (("skills", "skills"), ("instr", "instr "), ("mcp", "mcp   ")):
                 p = a.resolve(what, scope, mgr.project)
@@ -114,7 +114,7 @@ def cmd_list(mgr: Manager, args) -> int:
             cells = " ".join(f"{SYMBOL[r['agents'][a]]:^7}" for a in agents)
             tag = "" if r["in_library"] else "  (external)"
             print(f"  {r['name']:<28}{cells}{tag}")
-    print("\n● installed  ◐ outdated  ○ chưa cài  ◌ external (không có trong library)")
+    print("\n● installed  ◐ outdated  ○ not installed  ◌ external (not in library)")
     for e in mgr.lib.errors:
         print(f"! {e}", file=sys.stderr)
     return 0
@@ -128,22 +128,22 @@ def cmd_apply(mgr: Manager, args, install: bool) -> int:
             replace = False
             if install and kind == "skill" and (conflict := mgr.skill_conflict(aid, args.scope, name)):
                 try:
-                    replace = input(f"{aid} đang dùng {conflict}. Đổi sang {name}? [y/N]: ").strip().lower() == "y"
+                    replace = input(f"{aid} is using {conflict}. Replace it with {name}? [y/N]: ").strip().lower() == "y"
                 except EOFError:
                     replace = False
                 if not replace:
-                    print(f"[{aid}] Bỏ qua {name}")
+                    print(f"[{aid}] Skipping {name}")
                     continue
             if install and kind == "mcp":
                 state = mgr.states(aid, args.scope, "mcp").get(name)
                 conflict = mgr.mcp_conflict(aid, args.scope, name)
                 if conflict or (state and state.status == "outdated"):
                     try:
-                        replace = input(f"{aid} đã có MCP {conflict or name}. Ghi đè cấu hình theo library? [y/N]: ").strip().lower() == "y"
+                        replace = input(f"{aid} already has MCP {conflict or name}. Replace its configuration with the library version? [y/N]: ").strip().lower() == "y"
                     except EOFError:
                         replace = False
                     if not replace:
-                        print(f"[{aid}] Bỏ qua {name}")
+                        print(f"[{aid}] Skipping {name}")
                         continue
             r = mgr.install(aid, args.scope, kind, name, replace=replace) if install else mgr.uninstall(aid, args.scope, kind, name)
             print(f"[{aid}] {'✔' if r.ok else '✘'} {r.msg}")
@@ -153,21 +153,21 @@ def cmd_apply(mgr: Manager, args, install: bool) -> int:
 
 def cmd_remove(mgr: Manager, args) -> int:
     if args.agent or args.all_agents:
-        raise SystemExit("--library tự gỡ mọi liên kết đã ghi nhận; không dùng cùng --agent/--all-agents.")
+        raise SystemExit("--library removes all recorded links; do not combine it with --agent/--all-agents.")
     names = []
     for ref in args.items:
         kind, name = _parse_ref(ref)
         if kind not in ("skill", "mcp"):
-            raise SystemExit("--library chỉ hỗ trợ skill và MCP.")
+            raise SystemExit("--library supports skills and MCP servers only.")
         names.append((kind, name))
     fails = 0
     for kind, name in names:
         try:
             paths = mgr.skill_dependents(name) if kind == "skill" else mgr.mcp_dependents(name)
-            print(f"Xoá {name} khỏi library; gỡ {len(paths)} vị trí agent:")
+            print(f"Remove {name} from the library and uninstall it from {len(paths)} agent locations:")
             for path in paths:
                 print(f"  {path if kind == 'skill' else path[0]}")
-            if input("Bản khôi phục lưu trong library/.trash. Đồng ý? [y/N]: ").strip().lower() != "y":
+            if input("A recovery copy will be saved in library/.trash. Continue? [y/N]: ").strip().lower() != "y":
                 continue
             result = mgr.remove_skill(name) if kind == "skill" else mgr.remove_mcp(name)
             print(result.msg)
@@ -183,13 +183,13 @@ def cmd_remove(mgr: Manager, args) -> int:
 def cmd_remote(mgr: Manager, repository: str) -> int:
     try:
         with tempfile.TemporaryDirectory(prefix="opssum-skills-") as temp:
-            print(f"Đang tải {repository}…")
+            print(f"Downloading {repository}…")
             skills = remote.download(repository, Path(temp) / "repo")
             for i, skill in enumerate(skills, 1):
-                tag = " (đã có)" if remote.exists(mgr.home, skill) else ""
+                tag = " (already in library)" if remote.exists(mgr.home, skill) else ""
                 print(f"{i}. {skill.reference}{tag} — {skill.description}")
             while True:
-                answer = input("Chọn số cách nhau bằng dấu phẩy (vd 1,3), all = tất cả; Enter = huỷ: ").strip()
+                answer = input("Enter comma-separated numbers (for example 1,3), all = everything; Enter = cancel: ").strip()
                 if not answer:
                     return 0
                 try:
@@ -199,12 +199,12 @@ def cmd_remote(mgr: Manager, repository: str) -> int:
                         raise ValueError
                     break
                 except ValueError:
-                    print("Lựa chọn không hợp lệ.")
+                    print("Invalid selection.")
             for i in indices:
                 skill = skills[i]
                 overwrite = remote.exists(mgr.home, skill)
-                if overwrite and input(f"Ghi đè {skill.name}? Chỉnh sửa cũ sẽ mất. [y/N]: ").strip().lower() != "y":
-                    print(f"Bỏ qua {skill.name}")
+                if overwrite and input(f"Overwrite {skill.name}? Existing edits will be lost. [y/N]: ").strip().lower() != "y":
+                    print(f"Skipping {skill.name}")
                     continue
                 remote.install(mgr.home, skill, overwrite=overwrite)
                 print(f"✔ {mgr.home / 'skills' / skill.reference}")
@@ -213,7 +213,7 @@ def cmd_remote(mgr: Manager, repository: str) -> int:
         print(f"✘ {exc}", file=sys.stderr)
         return 1
     except EOFError:
-        print("Đã huỷ: cần nhập lựa chọn và xác nhận trong terminal.", file=sys.stderr)
+        print("Cancelled: selection and confirmation are required in a terminal.", file=sys.stderr)
         return 1
 
 
@@ -226,7 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         for c in created:
             print(f"  + {c}")
         if not created:
-            print("  (đã tồn tại, không có gì thay đổi)")
+            print("  (already exists; nothing changed)")
         return 0
     mgr = _manager(args)
     if args.cmd == "agents":
@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
             return cmd_remove(mgr, args)
         if args.cmd == "install" and any("/" in item and ":" not in item for item in args.items):
             if len(args.items) != 1 or args.agent or args.all_agents or args.scope != "global":
-                raise SystemExit("Dùng opssum install owner/repo để nhập vào library; cài cho agent bằng kind:name riêng.")
+                raise SystemExit("Use opssum install owner/repo to import into the library; install for agents with kind:name references.")
             return cmd_remote(mgr, args.items[0])
         return cmd_apply(mgr, args, args.cmd == "install")
     from .tui import run

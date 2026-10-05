@@ -46,7 +46,7 @@ def test_discover_and_overwrite(repository, tmp_path):
 def test_discovery_rejects_duplicates_and_symlinks(tmp_path):
     first = make_skill(tmp_path / "one", "alpha")
     make_skill(tmp_path / "two", "alpha")
-    with pytest.raises(ValueError, match="trùng tên"):
+    with pytest.raises(ValueError, match="same name"):
         remote.discover(tmp_path)
     (first / "link").symlink_to(tmp_path / "outside")
     with pytest.raises(ValueError, match="symlink"):
@@ -63,7 +63,7 @@ def test_download_failure(tmp_path, monkeypatch):
     def fail(*args, **kwargs):
         raise subprocess.CalledProcessError(128, "git")
     monkeypatch.setattr(remote.subprocess, "run", fail)
-    with pytest.raises(ValueError, match="Không tải được"):
+    with pytest.raises(ValueError, match="Could not download"):
         remote.download("anthropics/skills", tmp_path / "repo")
 
 
@@ -81,7 +81,7 @@ def test_download_root_skill(tmp_path, monkeypatch):
 
 
 def test_empty_repository(tmp_path):
-    with pytest.raises(ValueError, match="không có skill"):
+    with pytest.raises(ValueError, match="contains no skill"):
         remote.discover(tmp_path)
 
 
@@ -156,9 +156,9 @@ def test_skill_description_and_checkbox_layout(tmp_path, monkeypatch, size):
     from textual.widgets import DataTable
     from textual.containers import VerticalScroll
     monkeypatch.setenv("HOME", str(tmp_path / "user"))
-    description = "Mô tả dài cần đọc đầy đủ. " * 150
+    description = "A long description that must be fully readable. " * 150
     skills = [remote.RemoteSkill("long-description", tmp_path, description),
-              remote.RemoteSkill("second-skill", tmp_path, "Mô tả thứ hai")]
+              remote.RemoteSkill("second-skill", tmp_path, "A second description")]
     app = OpssumApp(Manager(tmp_path / "library", tmp_path))
 
     async def run():

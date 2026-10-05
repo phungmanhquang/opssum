@@ -32,7 +32,7 @@ jobs:
           version = tomllib.loads(Path('pyproject.toml').read_text(encoding='utf-8'))['project']['version']
           expected = 'v' + version
           if os.environ['RELEASE_TAG'] != expected:
-              raise SystemExit(f'Tag {os.environ["RELEASE_TAG"]} không khớp pyproject.toml: {expected}')
+              raise SystemExit(f'Tag {os.environ["RELEASE_TAG"]} does not match pyproject.toml: {expected}')
           print(f'Validated {expected}')
           PY
       - name: Install and test

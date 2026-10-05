@@ -40,7 +40,7 @@ def test_marketplace_ignores_related_server_commands(monkeypatch):
     related = '9:["$","$L4c","other/server",{"server":{"installCommand":"claude mcp add wrong -- npx unrelated"}}]'
     page = '<script>self.__next_f.push([1,' + json.dumps(related) + '])</script>'
     monkeypatch.setattr(mcp_marketplace, "_get", lambda path: page.encode())
-    with pytest.raises(ValueError, match="Không đọc được"):
+    with pytest.raises(ValueError, match="Could not read"):
         mcp_marketplace.configuration(mcp_marketplace.Listing("right/server", "Right", "", "right"))
 
 

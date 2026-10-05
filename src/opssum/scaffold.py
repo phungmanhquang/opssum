@@ -1,22 +1,22 @@
-"""Tạo thư mục .opssum mới (+ dữ liệu mẫu để thử TUI)."""
+"""Create a new .opssum directory with optional sample data."""
 from __future__ import annotations
 
 from pathlib import Path
 
 README = """# .opssum
 
-Nguồn sự thật (single source of truth) cho skills, MCP và instructions của mọi agent CLI.
+Single source of truth for skills, MCP servers, and instructions used by every agent CLI.
 
 - `skills/<name>/SKILL.md`     Agent Skills (frontmatter `name`, `description`)
 - `mcp/<name>.json`            1 MCP server / file
-- `instructions/<name>.md`     Mảnh AGENTS.md / CLAUDE.md, được chèn vào file memory của agent
-- `agents.json`                (tuỳ chọn) override đường dẫn của từng agent
+- `instructions/<name>.md`     AGENTS.md / CLAUDE.md fragment inserted into an agent memory file
+- `agents.json`                optional per-agent path overrides
 
-Chạy `opssum` để mở TUI.
+Run `opssum` to open the TUI.
 """
 
 AGENTS_JSON = """{
-  "_comment": "Override đường dẫn agent (xoá dấu _ để bật). Xem README mục 'Tuỳ biến agent'.",
+  "_comment": "Override agent paths (remove the leading _ to enable). See the README customization section.",
   "_disabled": [],
   "_agents": {}
 }
@@ -25,70 +25,70 @@ AGENTS_JSON = """{
 EXAMPLES: dict[str, str] = {
     "skills/commit-helper/SKILL.md": """---
 name: commit-helper
-description: Viết commit message theo Conventional Commits từ git diff. Dùng khi người dùng nhờ commit hoặc soạn message.
+description: Write a Conventional Commit message from git diff when a user asks for a commit or message.
 ---
 
 # Commit helper
 
-1. Chạy `git diff --staged` để xem thay đổi.
-2. Chọn type: feat, fix, refactor, docs, chore, test.
-3. Viết dòng đầu ≤ 72 ký tự, dạng `type(scope): mô tả`.
-4. Nếu thay đổi lớn, thêm body giải thích *vì sao*.
+1. Run `git diff --staged` to review the changes.
+2. Choose a type: feat, fix, refactor, docs, chore, or test.
+3. Write a first line of ≤ 72 characters in the form `type(scope): summary`.
+4. For a large change, add a body explaining *why*.
 """,
     "skills/vue2-conventions/SKILL.md": """---
 name: vue2-conventions
-description: Quy ước viết component Vue 2 + Element UI trong monorepo (đặt tên, cấu trúc thư mục, i18n).
+description: Conventions for Vue 2 + Element UI components in a monorepo (naming, structure, and i18n).
 ---
 
 # Vue 2 conventions
 
-- Component PascalCase, file `index.vue` trong thư mục cùng tên.
-- Dùng Element UI cho form/table; không tự viết lại input cơ bản.
-- Text hiển thị phải qua i18n, không hard-code.
+- Use PascalCase for components and keep `index.vue` in the component directory.
+- Use Element UI for forms/tables; do not rewrite basic inputs.
+- Route displayed text through i18n; do not hard-code it.
 """,
     "skills/code-review/SKILL.md": """---
 name: code-review
-description: Review code theo checklist (correctness, security, performance, readability) và trả về danh sách vấn đề theo mức độ.
+description: Review code for correctness, security, performance, and readability, grouping findings by severity.
 ---
 
 # Code review
 
-Đọc diff, nhóm nhận xét theo: **blocker**, **nên sửa**, **gợi ý**. Mỗi nhận xét nêu file:dòng và cách sửa.
+Read the diff and group findings as **blocker**, **should fix**, or **suggestion**. Include file:line and a fix for each finding.
 """,
     "mcp/filesystem.json": """{
-  "description": "Truy cập file trong thư mục hiện tại (server tham chiếu của MCP).",
+  "description": "Access files in the current directory (reference MCP server).",
   "command": "npx",
   "args": ["-y", "@modelcontextprotocol/server-filesystem", "."]
 }
 """,
     "mcp/context7.json": """{
-  "description": "Tra docs thư viện mới nhất qua Context7.",
+  "description": "Look up the latest library documentation through Context7.",
   "command": "npx",
   "args": ["-y", "@upstash/context7-mcp"]
 }
 """,
     "mcp/deepwiki.json": """{
-  "description": "Hỏi đáp về repo GitHub qua DeepWiki (remote, không cần key).",
+  "description": "Ask questions about GitHub repositories through DeepWiki (remote; no key required).",
   "url": "https://mcp.deepwiki.com/mcp"
 }
 """,
     "instructions/coding-style.md": """---
-description: Quy ước code chung cho mọi project
+description: General coding conventions for every project
 ---
 
 ## Coding style
 
-- Ưu tiên thay đổi nhỏ, dễ review; không refactor ngoài phạm vi yêu cầu.
-- Tên biến/hàm bằng tiếng Anh; comment giải thích *vì sao* chứ không *cái gì*.
+- Prefer small, reviewable changes; do not refactor outside the requested scope.
+- Use English for variable and function names; comments should explain *why*, not *what*.
 """,
     "instructions/git-workflow.md": """---
-description: Quy trình git (Gitea): branch, commit, PR
+description: Git workflow (Gitea): branches, commits, and pull requests
 ---
 
 ## Git workflow
 
-- Branch: `feature/<ticket>-<mô-tả-ngắn>`, `fix/<ticket>-...`.
-- Commit theo Conventional Commits; không push thẳng vào `main`.
+- Branches: `feature/<ticket>-<short-description>`, `fix/<ticket>-...`.
+- Use Conventional Commits; do not push directly to `main`.
 """,
 }
 

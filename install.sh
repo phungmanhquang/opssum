@@ -3,50 +3,50 @@
 set -eu
 
 say() { printf '[opssum] %s\n' "$*"; }
-fail() { printf '[opssum] Lỗi: %s\n' "$*" >&2; exit 1; }
+fail() { printf '[opssum] Error: %s\n' "$*" >&2; exit 1; }
 
 # GitHub repository used for release assets. OPSSUM_REPO remains available for
 # testing or a fork without requiring a source edit.
 repo="${OPSSUM_REPO:-phungmanhquang/opssum}"
 case "$repo" in
-  OWNER/REPO) fail "GitHub owner/repo chưa được cấu hình hợp lệ." ;;
+  OWNER/REPO) fail "GitHub owner/repo is not configured correctly." ;;
   */*) ;;
-  *) fail "GitHub repo phải có dạng owner/repo." ;;
+  *) fail "GitHub repository must use the owner/repo format." ;;
 esac
 case "$repo" in
-  *[!A-Za-z0-9._/-]*|*/*/*|/*|*/|*..*) fail "GitHub owner/repo không hợp lệ: $repo" ;;
+  *[!A-Za-z0-9._/-]*|*/*/*|/*|*/|*..*) fail "Invalid GitHub owner/repo: $repo" ;;
 esac
 
-command -v curl >/dev/null 2>&1 || fail "Cần curl để tải binary từ GitHub Releases."
-command -v mktemp >/dev/null 2>&1 || fail "Cần mktemp để tải an toàn."
+command -v curl >/dev/null 2>&1 || fail "curl is required to download a binary from GitHub Releases."
+command -v mktemp >/dev/null 2>&1 || fail "mktemp is required for a safe download."
 
 case "$(uname -s)" in
   Linux) os=linux ;;
   Darwin) os=macos ;;
-  *) fail "OS chưa hỗ trợ bởi install.sh; Windows hãy dùng install.ps1." ;;
+  *) fail "install.sh does not support this OS; Windows users should use install.ps1." ;;
 esac
 case "$(uname -m)" in
   x86_64|amd64) arch=x64 ;;
   aarch64|arm64) arch=arm64 ;;
-  *) fail "CPU chưa có binary phát hành: $(uname -m)." ;;
+  *) fail "No release binary is available for CPU: $(uname -m)." ;;
 esac
 
 asset="opssum-$os-$arch"
 base="https://github.com/$repo/releases/latest/download"
-temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/opssum-install.XXXXXXXX")" || fail "Không tạo được thư mục tạm."
+temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/opssum-install.XXXXXXXX")" || fail "Could not create a temporary directory."
 trap 'if [ -n "${stage:-}" ] && [ -f "$stage" ]; then rm -f "$stage"; fi; rm -R "$temp_dir" 2>/dev/null || true' 0
 
-say "Đang tải $asset từ GitHub Releases mới nhất..."
+say "Downloading $asset from the latest GitHub Release..."
 curl -fsSL --retry 3 --connect-timeout 10 --max-time 180 \
-  "$base/$asset" -o "$temp_dir/$asset" || fail "Không tải được binary $asset. Kiểm tra repo/release và kết nối mạng."
+  "$base/$asset" -o "$temp_dir/$asset" || fail "Could not download binary $asset. Check the repository, release, and network connection."
 curl -fsSL --retry 3 --connect-timeout 10 --max-time 60 \
-  "$base/$asset.sha256" -o "$temp_dir/$asset.sha256" || fail "Không tải được checksum của $asset."
+  "$base/$asset.sha256" -o "$temp_dir/$asset.sha256" || fail "Could not download the checksum for $asset."
 
 expected="$(awk -v name="$asset" '$2 == name {print $1; exit}' "$temp_dir/$asset.sha256")"
 case "$expected" in
-  ""|*[!0-9a-fA-F]*) fail "File SHA256 không hợp lệ cho $asset." ;;
+  ""|*[!0-9a-fA-F]*) fail "Invalid SHA256 file for $asset." ;;
 esac
-[ "${#expected}" -eq 64 ] || fail "File SHA256 không hợp lệ cho $asset."
+[ "${#expected}" -eq 64 ] || fail "Invalid SHA256 file for $asset."
 
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum "$temp_dir/$asset" | awk '{print $1}')"
@@ -55,19 +55,19 @@ elif command -v shasum >/dev/null 2>&1; then
 elif command -v openssl >/dev/null 2>&1; then
   actual="$(openssl dgst -sha256 "$temp_dir/$asset" | awk '{print $NF}')"
 else
-  fail "Cần sha256sum, shasum hoặc openssl để xác minh binary."
+  fail "sha256sum, shasum, or openssl is required to verify the binary."
 fi
 [ "$(printf '%s' "$actual" | tr 'A-F' 'a-f')" = "$(printf '%s' "$expected" | tr 'A-F' 'a-f')" ] || \
-  fail "SHA256 không khớp; bản cài hiện tại được giữ nguyên."
+  fail "SHA256 mismatch; the current installation was kept unchanged."
 
 chmod 755 "$temp_dir/$asset"
-"$temp_dir/$asset" --version >/dev/null || fail "Binary không chạy trên máy này; bản cài hiện tại được giữ nguyên."
+"$temp_dir/$asset" --version >/dev/null || fail "The binary cannot run on this machine; the current installation was kept unchanged."
 
 bin_dir="$HOME/.local/bin"
-[ ! -L "$bin_dir" ] || fail "$bin_dir là symlink; không tự ghi qua đường dẫn này."
+[ ! -L "$bin_dir" ] || fail "$bin_dir is a symlink; refusing to write through it."
 mkdir -p "$bin_dir"
 destination="$bin_dir/opssum"
-[ ! -d "$destination" ] || fail "$destination là thư mục, không thể ghi đè."
+[ ! -d "$destination" ] || fail "$destination is a directory and cannot be overwritten."
 
 if [ -f "$destination" ] && [ ! -L "$destination" ]; then
   if command -v sha256sum >/dev/null 2>&1; then
@@ -82,15 +82,15 @@ else
 fi
 
 if [ -n "$installed" ] && [ "$installed" = "$actual" ]; then
-  say "$asset đã là bản mới nhất; không cần thay binary."
+  say "$asset is already up to date; no binary replacement is needed."
 else
   stage="$bin_dir/.opssum-install.$$"
-  [ ! -e "$stage" ] || fail "File tạm đã tồn tại: $stage"
+  [ ! -e "$stage" ] || fail "Temporary file already exists: $stage"
   cp "$temp_dir/$asset" "$stage"
   chmod 755 "$stage"
-  mv -f "$stage" "$destination" || fail "Không thể cập nhật $destination; bản cũ được giữ nguyên."
+  mv -f "$stage" "$destination" || fail "Could not update $destination; the previous binary was kept."
   stage=
-  say "Đã cài/cập nhật: $destination"
+  say "Installed/updated: $destination"
 fi
 
 case ":${PATH:-}:" in
@@ -101,8 +101,8 @@ case ":${PATH:-}:" in
       */bash) profile="$HOME/.bashrc" ;;
       *) profile="$HOME/.profile" ;;
     esac
-    say "$bin_dir chưa nằm trong PATH. Thêm dòng này vào $profile rồi mở terminal mới:"
+    say "$bin_dir is not on PATH. Add this line to $profile, then open a new terminal:"
     printf '  export PATH="$HOME/.local/bin:$PATH"\n'
     ;;
 esac
-say "Chạy: opssum init --examples  (lần đầu), sau đó opssum"
+say "Run: opssum init --examples (first time), then opssum"
