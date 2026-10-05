@@ -5,9 +5,9 @@ $ErrorActionPreference = 'Stop'
 
 function Say([string]$Message) { Write-Host "[opssum] $Message" }
 
-$repository = if ($env:OPSSUM_REPO) { $env:OPSSUM_REPO } else { 'OWNER/REPO' }
+$repository = if ($env:OPSSUM_REPO) { $env:OPSSUM_REPO } else { 'phungmanhquang/opssum' }
 if ($repository -eq 'OWNER/REPO') {
-    throw 'Chưa cấu hình GitHub owner/repo trong install.ps1.'
+    throw 'GitHub owner/repo chưa được cấu hình hợp lệ.'
 }
 if ($repository -notmatch '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$' -or $repository.Contains('..')) {
     throw "GitHub owner/repo không hợp lệ: $repository"

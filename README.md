@@ -40,12 +40,11 @@ Người dùng bản **standalone binary không cần cài Python**. Terminal c�
 ### Cài nhanh Linux/macOS
 
 ```sh
-curl -fsSL https://github.com/OWNER/REPO/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/phungmanhquang/opssum/releases/latest/download/install.sh | sh
 ```
 
-Thay `OWNER/REPO` bằng repo GitHub công khai trước khi dùng hoặc phát hành tài liệu.
-Người phát hành cũng cần thay placeholder `OWNER/REPO` trong `install.sh` và
-`install.ps1`. Workflow upload hai installer cùng binary lên mỗi GitHub Release;
+Installer trỏ tới repository `phungmanhquang/opssum`. Workflow upload hai installer
+cùng binary lên mỗi GitHub Release;
 lệnh này hoạt động sau khi có release đầu tiên.
 Installer tự nhận Linux/macOS và x64/ARM64, tải binary mới nhất cùng SHA256 từ
 GitHub Releases, xác minh rồi cài vào `~/.local/bin/opssum`.
@@ -73,10 +72,10 @@ khỏi shell profile nếu `~/.local/bin` không còn dùng cho công cụ nào 
 ### Windows PowerShell
 
 ```powershell
-irm https://github.com/OWNER/REPO/releases/latest/download/install.ps1 | iex
+irm https://github.com/phungmanhquang/opssum/releases/latest/download/install.ps1 | iex
 ```
 
-Thay `OWNER/REPO` như trên. Chạy lại lệnh để cập nhật. Installer hỗ trợ Windows
+Chạy lại lệnh để cập nhật. Installer hỗ trợ Windows
 x64, kiểm SHA256, lưu `opssum.exe` vào `$HOME\.local\bin`, tự thêm thư mục này
 vào User PATH; mở PowerShell mới rồi chạy `opssum`. Để gỡ, xóa file này;
 library vẫn được giữ:

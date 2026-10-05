@@ -92,7 +92,7 @@ def test_placeholder_fails_before_download(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     env = {**os.environ, "HOME": str(home)}
-    env.pop("OPSSUM_REPO", None)
+    env["OPSSUM_REPO"] = "OWNER/REPO"
     result = subprocess.run(["sh", str(INSTALLER)], env=env, capture_output=True, text=True)
     assert result.returncode != 0
-    assert "Chưa cấu hình GitHub owner/repo" in result.stderr
+    assert "GitHub owner/repo chưa được cấu hình hợp lệ" in result.stderr

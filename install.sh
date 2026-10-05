@@ -5,10 +5,11 @@ set -eu
 say() { printf '[opssum] %s\n' "$*"; }
 fail() { printf '[opssum] Lỗi: %s\n' "$*" >&2; exit 1; }
 
-# Maintainer: replace OWNER/REPO before publishing this script.
-repo="${OPSSUM_REPO:-OWNER/REPO}"
+# GitHub repository used for release assets. OPSSUM_REPO remains available for
+# testing or a fork without requiring a source edit.
+repo="${OPSSUM_REPO:-phungmanhquang/opssum}"
 case "$repo" in
-  OWNER/REPO) fail "Chưa cấu hình GitHub owner/repo trong install.sh." ;;
+  OWNER/REPO) fail "GitHub owner/repo chưa được cấu hình hợp lệ." ;;
   */*) ;;
   *) fail "GitHub repo phải có dạng owner/repo." ;;
 esac
