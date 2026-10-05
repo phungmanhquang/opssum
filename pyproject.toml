@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "opssum"
-version = "0.1.1"
+version = "0.1.2"
 description = "TUI for managing shared skills, MCP servers, and instructions across agent CLIs (claude, codex, pi, omp, agy)"
 readme = "README.md"
 requires-python = ">=3.10"
